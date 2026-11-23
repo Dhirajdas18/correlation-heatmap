@@ -181,7 +181,10 @@ function eigenvalues(c) {
   return a.map((r, i) => r[i]).sort((x, y) => y - x);
 }
 
+// Effective number of independent bets: (Σλ)² / Σλ² (mirrors ch/diversify.py).
+function participationRatio(ev) { const s = ev.reduce((a, b) => a + b, 0); return s * s / ev.reduce((a, b) => a + b * b, 0); }
+
 // Marchenko-Pastur noise band for n series of t observations.
 function mpBounds(n, t) { const q = n / t; return [(1 - Math.sqrt(q)) ** 2, (1 + Math.sqrt(q)) ** 2]; }
 
-if (typeof module !== "undefined") module.exports = { mstEdges, radialLayout, ewmaPair, eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
+if (typeof module !== "undefined") module.exports = { participationRatio, mstEdges, radialLayout, ewmaPair, eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };

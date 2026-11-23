@@ -52,7 +52,7 @@ const HM = $data;
     const sig = ev.filter((e) => e > hi).length;
     el("hm-note").textContent = `${names.length} stocks over ${days} ${weekly ? "weeks" : "trading days"} to ${HM.last}; average ${el("hm-meth").value === "rank" ? "rank " : ""}correlation ${fmt(s / n)}` +
       (resid ? " after taking out each stock’s beta × NIFTY." : ".") + (left ? ` ${left} stock${left > 1 ? "s" : ""} with too little history left out.` : "") +
-      ` ${sig} of ${names.length} factors stand above the noise band (eigenvalue ${hi.toFixed(2)}); the first explains ${Math.round(ev[0] / names.length * 100)}% of all movement.`;
+      ` ${sig} of ${names.length} factors stand above the noise band (eigenvalue ${hi.toFixed(2)}); the first explains ${Math.round(ev[0] / names.length * 100)}% of all movement. Together the ${names.length} behave like ${participationRatio(ev).toFixed(1)} independent bets.`;
     Plotly.react("hm-chart", [{ type: "heatmap", z, x: labs, y: labs, text, hoverinfo: "text", zmin: -0.8, zmax: 0.8,
       colorscale: [[0, "#2166ac"], [0.5, css("--surface")], [1, "#b2182b"]], xgap: 0.5, ygap: 0.5,
       colorbar: { thickness: 10, title: { text: "correlation", side: "right" } } }],

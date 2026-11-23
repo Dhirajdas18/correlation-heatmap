@@ -134,3 +134,12 @@ def test_browser_mst_matches_scipy():
     root = int(np.argmax(np.bincount(np.array([e[:2] for e in py]).ravel(), minlength=15)))
     xy = _node(f"m.radialLayout({json.dumps([[a, b, w] for a, b, w in py])}, 15, {root})")
     assert np.array(xy) == pytest.approx(radial_layout(py, 15, root), abs=1e-12)
+
+
+def test_browser_participation_ratio_matches_python():
+    from ch.diversify import participation_ratio
+
+    R = _data(seed=10)
+    c = R.dropna().corr().to_numpy()
+    js = _node(f"m.participationRatio(m.eigenvalues({json.dumps(c.tolist())}))")
+    assert js == pytest.approx(participation_ratio(c), rel=1e-9)

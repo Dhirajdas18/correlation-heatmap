@@ -19,7 +19,7 @@ pair's correlation through time; below it, the minimum spanning tree for the sam
 - [x] Noise against signal: random matrix theory, the market factor's share over time, cleaning the matrix; factor count in the heatmap
 - [x] Correlation through time: rolling, EWMA, DCC and their forecasts; falling together against rising together; EWMA line in the heatmap
 - [x] Networks: minimum spanning tree, hubs, yearly trees and link survival; live tree on the dashboard
-- [ ] Diversification: effective number of bets; hierarchical risk parity walk-forward
+- [x] Diversification: effective number of bets; hierarchical risk parity walk-forward after costs; bets count in the heatmap
 - [ ] Across assets and time zones: US market, gold, the rupee; lead and lag
 
 ## Findings
@@ -180,12 +180,50 @@ One tree per calendar year, 2011 to 2026 (2026 to November), for the 43 stocks w
 - **Hubs (right):** the stock with the most links was different from the year before in all 15 years
   (ties broken by name order, in 2021 and 2026). ICICI Bank led 5 times, with 13 links in 2011; L&T twice.
 
+### 6. 43 stocks held equally were worth 2.2 to 5.8 independent bets; hierarchical risk parity landed between inverse volatility and minimum variance and paid the most in costs
+
+<a href="docs/img/div_bets.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/div_bets.png"><img src="docs/img/div_bets.gif" alt="Effective number of independent bets by year for an equal-weight portfolio of 43 stocks and for the whole correlation matrix" width="720"></picture></a>
+
+How many independent bets is a portfolio? For a portfolio, the square of the diversification ratio
+(Σ wᵢσᵢ / σ_p, Choueifaty) counts them: N for N unrelated, equally risky stocks held equally. For the
+whole market, the participation ratio of the correlation matrix's eigenvalues, (Σλ)² / Σλ², does the same.
+The 43 stocks with prices every day, one calendar year at a time, 2010–2026.
+
+- **Few bets:** held equally, the 43 stocks were worth 2.2 (2020) to 5.8 (2017) independent bets. The
+  correlation matrix itself ranged from 4.6 (2020) to 18.1 (2017).
+
+<table><tr>
+<td><a href="docs/img/div_walk.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/div_walk.png"><img src="docs/img/div_walk.gif" alt="Wealth from 2014 for equal weight, inverse volatility, minimum variance and hierarchical risk parity after costs"></picture></a></td>
+<td><a href="docs/img/div_costs.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/div_costs.png"><img src="docs/img/div_costs.gif" alt="Trading costs, turnover and largest holding for the four weighting methods"></picture></a></td>
+</tr></table>
+
+Hierarchical risk parity (López de Prado 2016) builds a tree of the stocks from their correlations and,
+from the top down, splits each branch's money between its two sub-branches in inverse proportion to their
+variance, with no matrix inversion. Here the split follows the tree's own branches (the original bisects
+the ordered list, which can cut a cluster in two). Walk-forward from January 2014: each month end, weights
+from the past 250 days only, long only, ₹10 lakh, after Zerodha delivery costs (STT 0.1% both sides, stamp
+duty, exchange charges, ₹15.93 DP charge per stock sold, 0.05% slippage).
+
+| 2014–2026 | Growth a year | Volatility | Worst fall | Growth ÷ volatility | Turnover a year | Costs a year | Independent bets |
+|---|---|---|---|---|---|---|---|
+| equal weight | 20.8% | 16.2% | −37% | 1.28 | 0.4× | 0.26% | 3.7 |
+| inverse volatility | 19.8% | 15.4% | −36% | 1.29 | 0.4× | 0.27% | 3.9 |
+| minimum variance | 16.5% | 13.1% | −27% | 1.26 | 1.6× | 0.59% | 4.8 |
+| hierarchical risk parity | 18.7% | 14.9% | −31% | 1.26 | 2.4× | 0.94% | 4.2 |
+
+- **In between:** hierarchical risk parity's volatility and worst fall sat between inverse volatility and
+  minimum variance; growth per unit of volatility was within 0.03 across all four.
+- **The cost of the tree:** it turned over 2.4 times its portfolio a year, paying 0.94% a year, and held
+  20% in its largest stock on average.
+- These are today's NIFTY members, so every method's growth is inflated by survivorship; ef/04 runs
+  weighting methods on a point-in-time universe.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # also: measure, rmt, time, network
+uv run ch report heatmap                    # also: measure, rmt, time, network, diversify
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -202,6 +240,9 @@ uv run pytest
   likelihood over pairs), exceedance correlation and the QLIKE loss.
 - `src/ch/network.py`: minimum spanning tree, degrees, average link correlation, link overlap between
   trees and a radial layout.
+- `src/ch/diversify.py`: participation ratio, diversification ratio, inverse volatility, long-only
+  minimum variance, hierarchical risk parity along the tree, Zerodha delivery costs and a monthly
+  walk-forward.
 - `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
   removal, clustering and eigenvalues (Jacobi) in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).

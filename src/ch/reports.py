@@ -18,6 +18,15 @@ SHORT = {"Financial Services": "Financials", "Healthcare": "Healthcare",
 K = 12  # clusters to cut the tree into
 
 
+def _rupee_log(ax) -> None:
+    """Log wealth axis labelled ₹1, ₹2, ₹5… instead of powers of ten."""
+    from matplotlib.ticker import FuncFormatter, LogLocator
+
+    ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1, 2, 5)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+
+
 def returns() -> pd.DataFrame:
     from ch.data import DATA_PATH, daily_returns
 
@@ -624,5 +633,102 @@ def report_network(out_dir: Path) -> dict:
     }
 
 
+def report_diversify(out_dir: Path) -> dict:
+    """How many independent bets the NIFTY 50 is worth, and hierarchical risk parity walk-forward
+    against equal weight, inverse volatility and minimum variance, after costs."""
+    from ch.data import SYMBOLS
+    from ch.diversify import (
+        diversification_ratio,
+        hrp_weights,
+        inverse_vol,
+        min_var_long_only,
+        participation_ratio,
+        walk_forward,
+    )
+
+    R = returns()
+    syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
+    X = R.loc["2010-01-01":, syms].dropna()
+    ew = np.full(len(syms), 1 / len(syms))
+    years = sorted(set(X.index.year))
+    bets = {y: (diversification_ratio(ew, X.loc[str(y)].cov()) ** 2,
+                participation_ratio(X.loc[str(y)].corr())) for y in years}
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.plot(years, [bets[y][1] for y in years], "o-", color=plots.MUTED, lw=2,
+            label="whole market: participation ratio of the correlation matrix")
+    ax.plot(years, [bets[y][0] for y in years], "o-", color=plots.SERIES[0], lw=2,
+            label="equal-weight portfolio: diversification ratio²")
+    ax.set_ylabel(f"effective number of independent bets\n(out of {len(syms)} stocks)")
+    ax.set_ylim(0, None)
+    ax.legend(loc="upper left", fontsize=8)
+    low = min(years, key=lambda y: bets[y][0])
+    lo_b, hi_b = min(b[0] for b in bets.values()), max(b[0] for b in bets.values())
+    ax.set_title(f"{len(syms)} stocks held equally were worth {lo_b:.1f} to {hi_b:.1f} "
+                 f"independent bets; the low was {low}")
+    plots.save(fig, out_dir, "div_bets")
+
+    methods = {"equal weight": lambda cov, corr: np.full(len(cov), 1 / len(cov)),
+               "inverse volatility": lambda cov, corr: inverse_vol(cov),
+               "minimum variance": lambda cov, corr: min_var_long_only(cov),
+               "hierarchical risk parity": hrp_weights}
+    res = {k: walk_forward(X, f, 250, MEASURE_START, 1e6) for k, f in methods.items()}
+    stats = {}
+    for k, r_ in res.items():
+        wl = r_["wealth"]
+        yrs = (wl.index[-1] - wl.index[0]).days / 365.25
+        lr = np.log(wl).diff().dropna()
+        dr = [diversification_ratio(w, X.loc[:t].iloc[-250:].cov()) ** 2
+              for t, w in r_["weights"].iloc[::21].iterrows()]
+        stats[k] = {"growth": float(wl.iloc[-1] ** (1 / yrs) - 1),
+                    "vol": float(lr.std() * np.sqrt(len(lr) / yrs)),
+                    "worst": float((wl / wl.cummax() - 1).min()),
+                    "turnover": r_["turnover"], "costs": r_["costs"],
+                    "largest weight": float(r_["weights"].max(axis=1).mean()),
+                    "bets": float(np.mean(dr))}
+    cols = {"equal weight": plots.TEXT, "inverse volatility": plots.SERIES[2],
+            "minimum variance": plots.SERIES[1], "hierarchical risk parity": plots.SERIES[0]}
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    for k, r_ in res.items():
+        st = stats[k]
+        ax.plot(r_["wealth"].index, r_["wealth"].values, color=cols[k], lw=1.6,
+                label=f"{k}: {st['growth']:.1%} a year, volatility {st['vol']:.1%}, "
+                      f"worst fall {st['worst']:.0%}")
+    ax.set_yscale("log")
+    _rupee_log(ax)
+    ax.set_ylabel("wealth from ₹1 in January 2014 (log scale)")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_title("After costs, hierarchical risk parity landed between inverse volatility and "
+                 "minimum variance")
+    plots.save(fig, out_dir, "div_walk")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    names = list(stats)
+    xs = np.arange(len(names))
+    vals = [stats[k]["costs"] * 100 for k in names]
+    ax.bar(xs, vals, 0.55, color=[cols[k] for k in names])
+    for i, k in enumerate(names):
+        ax.text(i, vals[i] + 0.02, f"{vals[i]:.2f}%\nturnover {stats[k]['turnover']:.1f}× a year"
+                f"\nlargest holding {stats[k]['largest weight']:.0%}", ha="center", fontsize=8)
+    ax.set_xticks(xs, names, fontsize=9)
+    ax.set_ylim(0, max(vals) * 1.6)
+    ax.set_ylabel("trading costs, % of wealth a year")
+    ax.grid(axis="x", visible=False)
+    hrp = stats["hierarchical risk parity"]
+    ax.set_title(f"Hierarchical risk parity traded {hrp['turnover']:.1f}× its portfolio a year "
+                 f"and paid {hrp['costs']:.2%}")
+    plots.save(fig, out_dir, "div_costs")
+
+    return {
+        "stocks, test from": (len(syms), MEASURE_START),
+        "effective bets by year (equal weight DR², participation ratio)": {
+            y: (round(a_, 2), round(b_, 2)) for y, (a_, b_) in bets.items()},
+        "walk-forward 2014-26, 250-day estimates, monthly, ₹10 lakh, costs": {
+            k: {m: round(v, 4) for m, v in st.items()} for k, st in stats.items()},
+        "growth / volatility": {k: round(st["growth"] / st["vol"], 2) for k, st in stats.items()},
+    }
+
+
 REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt,
-           "time": report_time, "network": report_network}
+           "time": report_time, "network": report_network, "diversify": report_diversify}
