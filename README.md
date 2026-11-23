@@ -54,9 +54,9 @@ stock's beta × NIFTY's daily return (beta from the same days) before correlatin
 - **Misfits (right):** with the market removed, 11 of the 47 stocks in sectors with more than one member
   moved more with another sector. SBIN correlated 0.25 with the capital-goods stock BEL and 0.02 on
   average with the other financials; ADANIENT 0.40 with ADANIPORTS (Services) against 0.07 with metals.
-  NSE's 12-stock "Financial Services" holds four separate clusters (private banks, Bajaj and Shriram,
-  insurers, and BSE and JIOFIN elsewhere), so its average within-sector correlation is low. ONGC and
-  KOTAKBANK are near-ties (within 0.01).
+  NSE's 12-stock "Financial Services" spread over four clusters (private banks, Bajaj and Shriram,
+  insurers, and BSE and JIOFIN with the recent listings); five of its stocks averaged 0.02 to 0.10 with the
+  rest of it. ONGC and KOTAKBANK are near-ties (within 0.01).
 
 ## Quick start
 
