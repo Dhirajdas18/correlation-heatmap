@@ -17,7 +17,11 @@
 </form>
 <p class="note" id="hm-note" aria-live="polite"></p>
 <div id="hm-chart" class="sim-chart heat" role="img" aria-label="Correlation heatmap of the NIFTY 50 stocks"></div>
-<h3 id="hm-pair-title">Click a square to see that pair over time</h3>
+<form class="calc" id="hm-pairs" onsubmit="return false">
+  <label>Pair: first stock <select id="hm-a"></select></label>
+  <label>second stock <select id="hm-b"></select></label>
+</form>
+<h3 id="hm-pair-title">Click a square, or choose two stocks above, to see that pair over time</h3>
 <div id="hm-pair" class="sim-chart" role="img" aria-label="Correlation of the chosen pair through time"></div>
 <h3>The market’s skeleton: minimum spanning tree</h3>
 <p class="note" id="hm-tree-note"></p>
@@ -32,6 +36,10 @@ const HM = $data;
   const base = () => ({ paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
     font: { family: getComputedStyle(document.body).fontFamily, color: css("--text-2"), size: 12 } });
   let pair = null;
+  const opts = HM.symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
+  el("hm-a").innerHTML = opts; el("hm-b").innerHTML = opts;
+  el("hm-a").value = "INFY"; el("hm-b").value = "TCS";
+  el("hm-pairs").addEventListener("change", () => { if (el("hm-a").value !== el("hm-b").value) { pair = [el("hm-a").value, el("hm-b").value]; drawPair(); } });
   const slice = (w) => Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, v.slice(-w)]));
   const fmt = (x) => x.toFixed(2).replace("-", "−");
   const update = () => {
@@ -59,7 +67,10 @@ const HM = $data;
       Object.assign(base(), { margin: { l: 90, r: 10, t: 10, b: 90 }, xaxis: { tickfont: { size: 8 }, tickangle: -90 },
         yaxis: { tickfont: { size: 8 }, autorange: "reversed" } }), { displaylogo: false, responsive: true });
     drawTree(c, names);
-    el("hm-chart").on("plotly_click", (ev) => { const p = ev.points[0]; if (p.x !== p.y) { pair = [p.y, p.x]; drawPair(); } });
+    if (!el("hm-chart").dataset.clicks) {  // register once: update() runs on every change
+      el("hm-chart").dataset.clicks = "1";
+      el("hm-chart").on("plotly_click", (ev) => { const p = ev.points[0]; if (p.x !== p.y) { pair = [p.y, p.x]; el("hm-a").value = p.y; el("hm-b").value = p.x; drawPair(); } });
+    }
     drawPair();
   };
   const drawTree = (c, names) => {
