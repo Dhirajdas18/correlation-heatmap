@@ -102,3 +102,21 @@ def test_browser_eigenvalues_match_numpy():
     assert js == pytest.approx(sorted(np.linalg.eigvalsh(c), reverse=True), abs=1e-8)
     b = _node("m.mpBounds(43, 3181)")
     assert b == pytest.approx(list(mp_bounds(43, 3181)))
+
+
+def test_browser_ewma_pair_correlation():
+    R = _data(seed=8)
+    cols = {k: [None if np.isnan(x) else x for x in R[k]] for k in R}
+    js = _node(f"m.ewmaPair({json.dumps(cols)}, 'A1', 'C2', 0.94, 60)")
+    x, y = R["A1"].to_numpy(), R["C2"].to_numpy()
+    first = int(np.argmax(~np.isnan(x)))
+    sxx, syy, sxy = (np.mean(v) for v in (x[first:first + 60] ** 2, y[first:first + 60] ** 2,
+                                          x[first:first + 60] * y[first:first + 60]))
+    exp = {}
+    for t in range(first + 60, len(x)):
+        exp[t] = sxy / np.sqrt(sxx * syy)  # forecast for day t from days before it
+        sxx = 0.94 * sxx + 0.06 * x[t] ** 2
+        syy = 0.94 * syy + 0.06 * y[t] ** 2
+        sxy = 0.94 * sxy + 0.06 * x[t] * y[t]
+    assert js[first + 59] is None
+    assert [js[t] for t in exp] == pytest.approx(list(exp.values()), rel=1e-9)

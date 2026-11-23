@@ -104,6 +104,22 @@ function rollingPair(cols, a, b, w, index) {
   return out;
 }
 
+// EWMA correlation of two names: each day's value is the forecast from the days before it,
+// seeded with the first `seed` days both have; null before that.
+function ewmaPair(cols, a, b, lam, seed = 60) {
+  const x = cols[a], y = cols[b], n = x.length, out = new Array(n).fill(null);
+  let first = 0; while (first < n && (x[first] === null || y[first] === null)) first++;
+  if (first + seed >= n) return out;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let t = first; t < first + seed; t++) { sxx += x[t] * x[t] / seed; syy += y[t] * y[t] / seed; sxy += x[t] * y[t] / seed; }
+  for (let t = first + seed; t < n; t++) {
+    out[t] = sxy / Math.sqrt(sxx * syy);
+    if (x[t] === null || y[t] === null) continue;
+    sxx = lam * sxx + (1 - lam) * x[t] * x[t]; syy = lam * syy + (1 - lam) * y[t] * y[t]; sxy = lam * sxy + (1 - lam) * x[t] * y[t];
+  }
+  return out;
+}
+
 // Eigenvalues of a symmetric matrix, largest first (cyclic Jacobi rotations).
 function eigenvalues(c) {
   const n = c.length, a = c.map((r) => r.slice());
@@ -132,4 +148,4 @@ function eigenvalues(c) {
 // Marchenko-Pastur noise band for n series of t observations.
 function mpBounds(n, t) { const q = n / t; return [(1 - Math.sqrt(q)) ** 2, (1 + Math.sqrt(q)) ** 2]; }
 
-if (typeof module !== "undefined") module.exports = { eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
+if (typeof module !== "undefined") module.exports = { ewmaPair, eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };

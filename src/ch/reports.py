@@ -363,4 +363,162 @@ def report_rmt(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt}
+def report_time(out_dir: Path) -> dict:
+    """Average NIFTY 50 correlation through time by four trackers, which forecasts portfolio risk
+    best out of sample, and whether stocks fall together more than they rise together."""
+    from ch.data import SECTORS, SYMBOLS
+    from ch.timevar import (
+        avg_offdiag,
+        dcc_corr,
+        dcc_fit,
+        ewma_corr,
+        exceedance_corr,
+        qlike,
+        standardise,
+    )
+
+    R = returns()
+    syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
+    X = R.loc["2010-01-01":, syms].dropna()
+    Zdf, vol = standardise(X, with_vol=True)
+    Zdf = Zdf.dropna()
+    Xs, vol = X.loc[Zdf.index], vol.loc[Zdf.index]
+    z = Zdf.to_numpy()
+    pre = Zdf.index < MEASURE_START
+    a, b = dcc_fit(z[pre])  # settings from before the test period only
+    test = ~pre
+    T = len(z)
+
+    paths = {"EWMA (λ 0.94)": ewma_corr(z, 0.94), "DCC": dcc_corr(z, a, b)}
+    for w in (63, 250):
+        roll = np.full((T, len(syms), len(syms)), np.nan)
+        for i in range(w, T):
+            roll[i] = np.corrcoef(z[i - w:i].T)
+        paths[f"rolling {w} days"] = roll
+    expanding = np.full((T, len(syms), len(syms)), np.nan)
+    for i in range(250, T):
+        expanding[i] = np.corrcoef(z[:i].T)
+    paths["all past days"] = expanding
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    idx = Zdf.index[test]
+    avg = {k: avg_offdiag(v[test]) for k, v in paths.items()}
+    for (k, v), c, lw in zip(avg.items(), (plots.SERIES[1], plots.SERIES[0], plots.MUTED,
+                                           plots.SERIES[2], plots.TEXT),
+                             (1.2, 1.8, 0.8, 1.4, 1.4), strict=True):
+        ax.plot(idx, v, color=c, lw=lw, label=k)
+    ax.set_ylabel("average correlation between stocks (forecast for the day)")
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+    d = pd.Series(avg["DCC"], index=idx)
+    ax.set_title(f"DCC's average correlation ranged from {d.min():.2f} to {d.max():.2f} "
+                 f"({d.idxmax():%b %Y})")
+    plots.save(fig, out_dir, "time_avg")
+
+    it = [s for s in syms if SECTORS[s] == "Information Technology"]
+    banks = [s for s in ("HDFCBANK", "ICICIBANK", "AXISBANK", "KOTAKBANK") if s in syms]
+    ports = {"equal weight, all stocks": np.full(len(syms), 1 / len(syms)),
+             "IT minus private banks": np.array([(1 / len(it)) if s in it else
+                                                 (-1 / len(banks)) if s in banks else 0.0
+                                                 for s in syms])}
+    xs, vs = Xs.to_numpy(), vol.to_numpy()
+    losses = {}
+    for pname, w in ports.items():
+        r_p = xs[test] @ w
+        wd = w * vs[test]  # weight × each stock's forecast volatility, per day
+        losses[pname] = {}
+        for k, cpath in paths.items():
+            var = np.einsum("ti,tij,tj->t", wd, cpath[test], wd)
+            losses[pname][k] = qlike(var, r_p)
+    base = "all past days"
+    diffs = {}
+    for pname, w in ports.items():
+        r_p = xs[test] @ w
+        wd = w * vs[test]
+        vb = np.einsum("ti,tij,tj->t", wd, paths[base][test], wd)
+        lb = np.log(vb) + r_p**2 / vb
+        diffs[pname] = {}
+        for k, cpath in paths.items():
+            if k == base:
+                continue
+            vk = np.einsum("ti,tij,tj->t", wd, cpath[test], wd)
+            dl = (np.log(vk) + r_p**2 / vk) - lb
+            n = len(dl)
+            # Newey-West standard error with 10 lags (losses are autocorrelated)
+            g = [np.mean((dl[j:] - dl.mean()) * (dl[:n - j] - dl.mean())) for j in range(11)]
+            lr = g[0] + 2 * sum((1 - j / 11) * g[j] for j in range(1, 11))
+            diffs[pname][k] = (float(dl.mean()), float(dl.mean() / np.sqrt(lr / n)))
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.6))
+    methods = [k for k in paths if k != base]
+    for ax, pname in zip(axes, ports, strict=True):
+        vals = [diffs[pname][k][0] for k in methods]
+        tvals = [diffs[pname][k][1] for k in methods]
+        cols = [plots.SERIES[0] if v < 0 else plots.SERIES[1] for v in vals]
+        ax.barh(range(len(methods)), vals, color=cols)
+        ax.xaxis.set_major_locator(plt.MaxNLocator(4))
+        ax.axvline(0, color=plots.TEXT_2, lw=0.8)
+        ax.set_yticks(range(len(methods)),
+                      [f"{m} (t {t_:.1f})".replace("-", "−") for m, t_ in
+                       zip(methods, tvals, strict=True)], fontsize=8)
+        ax.tick_params(axis="y", labelleft=True)
+        ax.set_title(pname, fontsize=10, fontweight="normal")
+        ax.set_xlabel("QLIKE loss minus 'all past days' (below 0 = better)")
+        ax.grid(axis="y", visible=False)
+    best_ls = min(methods, key=lambda k: diffs["IT minus private banks"][k][0])
+    fig.suptitle(f"Forecasting portfolio risk 2014–26: {best_ls} did best on the IT-minus-banks "
+                 "portfolio", fontweight="bold")
+    fig.tight_layout()
+    plots.save(fig, out_dir, "time_forecast")
+
+    zt = z[test]
+    thetas = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+    n = len(syms)
+    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    rng = np.random.default_rng(0)
+    down, up, norm_ex = [], [], []
+    for th in thetas:
+        dv, uv, nv = [], [], []
+        for i, j in pairs:
+            dv.append(exceedance_corr(zt[:, i], zt[:, j], -th if th else -1e-12))
+            uv.append(exceedance_corr(zt[:, i], zt[:, j], th if th else 1e-12))
+        down.append(np.nanmean(dv))
+        up.append(np.nanmean(uv))
+        rho = avg_offdiag(np.corrcoef(zt.T))
+        sim = rng.multivariate_normal([0, 0], [[1, rho], [rho, 1]], 2_000_000)
+        nv.append(exceedance_corr(sim[:, 0], sim[:, 1], th if th else 1e-12))
+        norm_ex.append(nv[0])
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs_th = [-t for t in thetas[::-1]] + thetas
+    ax.plot([-t for t in thetas], down, "o-", color=plots.SERIES[1], lw=2,
+            label="both stocks down more than θ")
+    ax.plot(thetas, up, "o-", color=plots.SERIES[0], lw=2, label="both up more than θ")
+    ax.plot(xs_th, norm_ex[::-1] + norm_ex, "--", color=plots.TEXT_2, lw=1.2,
+            label="normal distribution, same overall correlation")
+    ax.set_xlabel("θ, in standard deviations (left: falls, right: rises)")
+    ax.set_ylabel("average correlation on those days")
+    ax.legend(loc="center right", fontsize=8)
+    ax.set_title(f"Beyond 1 standard deviation, stocks moved together {down[4]:.2f} on falls "
+                 f"and {up[4]:.2f} on rises")
+    plots.save(fig, out_dir, "time_exceed")
+
+    return {
+        "stocks, test days": (len(syms), int(test.sum()), f"{idx[0]:%d %b %Y}"),
+        "DCC a, b (fit 2010-13)": (round(a, 4), round(b, 4)),
+        "average correlation by tracker: mean, min, max": {
+            k: (round(float(np.nanmean(v)), 3), round(float(np.nanmin(v)), 3),
+                round(float(np.nanmax(v)), 3)) for k, v in avg.items()},
+        "DCC max date": f"{d.idxmax():%d %b %Y}",
+        "QLIKE by portfolio": {p_: {k: round(v, 4) for k, v in l_.items()}
+                               for p_, l_ in losses.items()},
+        "QLIKE minus all past days (diff, t)": {p_: {k: (round(v[0], 4), round(v[1], 1))
+                                                     for k, v in d_.items()}
+                                                for p_, d_ in diffs.items()},
+        "IT / banks used": (it, banks),
+        "exceedance (theta: down, up, normal)": {t_: (round(dn, 3), round(u_, 3), round(nn, 3))
+                                                 for t_, dn, u_, nn in
+                                                 zip(thetas, down, up, norm_ex, strict=True)},
+    }
+
+
+REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt,
+           "time": report_time}

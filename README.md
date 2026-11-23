@@ -17,7 +17,7 @@ pair's correlation through time. It runs in your browser on five years of daily 
 - [x] Heatmap ordered by hierarchical clustering, with and without the market; clusters against NSE sectors
 - [x] Measurement: Pearson against rank correlation; daily to quarterly returns; overnight against intraday; rank and weekly options in the heatmap
 - [x] Noise against signal: random matrix theory, the market factor's share over time, cleaning the matrix; factor count in the heatmap
-- [ ] Correlation through time: rolling, EWMA, DCC; falling together against rising together
+- [x] Correlation through time: rolling, EWMA, DCC and their forecasts; falling together against rising together; EWMA line in the heatmap
 - [ ] Networks: minimum spanning tree, hubs, 2020
 - [ ] Diversification: effective number of bets; hierarchical risk parity walk-forward
 - [ ] Across assets and time zones: US market, gold, the rupee; lead and lag
@@ -120,12 +120,45 @@ band, (1 ± √(N/T))², here 0.78 to 1.25. Eigenvalues above it are real common
   ("clipping"), and held for 6 months. Over 25 periods both predicted 0.69% daily volatility and delivered
   0.79%; clipping changed realised volatility by 0.001 points.
 
+### 4. Stocks moved together 0.24 on joint falls and 0.11 on joint rises; DCC forecast portfolio risk best, significantly so for IT against banks
+
+<a href="docs/img/time_exceed.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/time_exceed.png"><img src="docs/img/time_exceed.gif" alt="Average correlation of NIFTY 50 stock pairs on days both fell, or both rose, more than theta standard deviations, against a normal distribution" width="720"></picture></a>
+
+The 43 stocks with prices every day, January 2014 to November 2026. Each day's return is divided by the
+stock's previous-day EWMA volatility (λ 0.94), so the measures below track correlation rather than
+volatility. Exceedance correlation (Longin and Solnik) is the correlation on the days both stocks fell more
+than θ standard deviations, or both rose more than θ; for normally distributed returns the two sides are
+the same and both shrink as θ grows.
+
+- **Falls were shared more than rises:** on days both stocks fell, the average pair correlated 0.235;
+  on days both rose, 0.105, close to the 0.103 a normal distribution would give. Beyond 1 standard
+  deviation it was 0.237 on falls, 0.106 on rises and 0.068 for the normal distribution; the gap held at
+  every threshold up to 1.5.
+
+<table><tr>
+<td><a href="docs/img/time_avg.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/time_avg.png"><img src="docs/img/time_avg.gif" alt="Average correlation between NIFTY 50 stocks forecast each day by EWMA, DCC, rolling 63 and 250 days and all past days"></picture></a></td>
+<td><a href="docs/img/time_forecast.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/time_forecast.png"><img src="docs/img/time_forecast.gif" alt="QLIKE loss of each correlation forecast minus all-past-days, for an equal-weight and an IT-minus-banks portfolio"></picture></a></td>
+</tr></table>
+
+Each tracker forecasts tomorrow's correlation from days before it: EWMA (λ 0.94), DCC(1,1) (Engle 2002;
+its two settings, a = 0.007 and b = 0.978, estimated on 2010–2013 only), rolling 63 and 250 days, and the
+average of all past days.
+
+- **How much correlation moved (left):** DCC's average ranged from 0.19 to 0.37 (24 March 2020); EWMA's
+  from 0.09 to 0.65 and the 63-day window's from 0.09 to 0.60, both much jumpier.
+- **Which forecast was right (right):** each method's correlation, combined with the same EWMA volatilities,
+  forecast the daily variance of two portfolios, scored by QLIKE (log σ̂² + r²/σ̂², lowest for the true
+  variance) against the all-past-days forecast, with Newey-West t-statistics. DCC had the lowest loss on
+  both: −0.016 (t −1.6, not significant) for an equal-weight portfolio of the 43, and −0.015 (t −3.2) for
+  long IT (TCS, INFY, HCLTECH, TECHM) against short private banks (HDFCBANK, ICICIBANK, AXISBANK,
+  KOTAKBANK). EWMA and the rolling windows were within t ±0.8 of the all-past forecast.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # also: measure, rmt; charts -> out/
+uv run ch report heatmap                    # also: measure, rmt, time; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -138,6 +171,8 @@ uv run pytest
   periods, overnight and intraday returns, and a month-block bootstrap of the average correlation.
 - `src/ch/rmt.py`: eigenvalues, the Marchenko-Pastur band and density, shuffling, eigenvalue clipping and
   the market factor's share.
+- `src/ch/timevar.py`: EWMA standardisation, EWMA and DCC correlation forecasts (DCC fitted by composite
+  likelihood over pairs), exceedance correlation and the QLIKE loss.
 - `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
   removal, clustering and eigenvalues (Jacobi) in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).
