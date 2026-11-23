@@ -1,0 +1,75 @@
+<form class="calc" id="hm" onsubmit="return false">
+  <label>Window <select id="hm-win">
+    <option value="250">last year</option><option value="750" selected>last 3 years</option><option value="1250">last 5 years</option>
+  </select></label>
+  <label>Moves <select id="hm-mkt">
+    <option value="raw">all of each stock’s move</option><option value="resid" selected>market removed</option>
+  </select></label>
+  <label>Order <select id="hm-ord">
+    <option value="cluster" selected>by cluster</option><option value="sector">by NSE sector</option>
+  </select></label>
+</form>
+<p class="note" id="hm-note" aria-live="polite"></p>
+<div id="hm-chart" class="sim-chart heat" role="img" aria-label="Correlation heatmap of the NIFTY 50 stocks"></div>
+<h3 id="hm-pair-title">Click a square to see that pair over time</h3>
+<div id="hm-pair" class="sim-chart" role="img" aria-label="Correlation of the chosen pair over the past 63 trading days, through time"></div>
+<script>
+$js
+const HM = $data;
+(() => {
+  const SCALE = 1e-5, el = (id) => document.getElementById(id);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const cols = Object.fromEntries(Object.entries(HM.r).map(([k, v]) => [k, v.map((x) => x === null ? null : x * SCALE)]));
+  const base = () => ({ paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
+    font: { family: getComputedStyle(document.body).fontFamily, color: css("--text-2"), size: 12 } });
+  let pair = null;
+  const slice = (w) => Object.fromEntries(Object.entries(cols).map(([k, v]) => [k, v.slice(-w)]));
+  const fmt = (x) => x.toFixed(2).replace("-", "−");
+  const update = () => {
+    const w = parseInt(el("hm-win").value, 10), resid = el("hm-mkt").value === "resid";
+    const data = slice(w), names = HM.symbols.filter((s) => data[s].filter((x) => x !== null).length > 0.8 * w);
+    const { c, days } = corrMatrix(data, names, resid ? "NIFTY" : null);
+    let order = names.map((_, i) => i);
+    if (el("hm-ord").value === "cluster") order = clusterOrder(c, 12).order;
+    else order.sort((a, b) => (HM.sectors[names[a]] + names[a]).localeCompare(HM.sectors[names[b]] + names[b]));
+    const labs = order.map((i) => names[i]);
+    const z = order.map((i) => order.map((j) => i === j ? null : c[i][j]));
+    const text = order.map((i) => order.map((j) => `${names[i]} (${HM.short[HM.sectors[names[i]]]}) × ${names[j]} (${HM.short[HM.sectors[names[j]]]}): ${fmt(c[i][j])}`));
+    let s = 0, n = 0;
+    for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) { s += c[i][j]; n++; }
+    const left = HM.symbols.length - names.length;
+    el("hm-note").textContent = `${names.length} stocks over ${days} trading days to ${HM.last}; average correlation ${fmt(s / n)}` +
+      (resid ? " after taking out each stock’s beta × NIFTY." : ".") + (left ? ` ${left} stock${left > 1 ? "s" : ""} with too little history left out.` : "");
+    Plotly.react("hm-chart", [{ type: "heatmap", z, x: labs, y: labs, text, hoverinfo: "text", zmin: -0.8, zmax: 0.8,
+      colorscale: [[0, "#2166ac"], [0.5, css("--surface")], [1, "#b2182b"]], xgap: 0.5, ygap: 0.5,
+      colorbar: { thickness: 10, title: { text: "correlation", side: "right" } } }],
+      Object.assign(base(), { margin: { l: 90, r: 10, t: 10, b: 90 }, xaxis: { tickfont: { size: 8 }, tickangle: -90 },
+        yaxis: { tickfont: { size: 8 }, autorange: "reversed" } }), { displaylogo: false, responsive: true });
+    el("hm-chart").on("plotly_click", (ev) => { const p = ev.points[0]; if (p.x !== p.y) { pair = [p.y, p.x]; drawPair(); } });
+    drawPair();
+  };
+  const drawPair = () => {
+    if (!pair) return;
+    const resid = el("hm-mkt").value === "resid", [a, b] = pair;
+    let series = cols;
+    if (resid) {  // residuals over the full five years, then the rolling correlation of those
+      const rows = completeRows(cols, [a, b, "NIFTY"]), m = rows.map((t) => cols.NIFTY[t]);
+      const mm = m.reduce((x, y) => x + y, 0) / m.length, vm = m.reduce((x, y) => x + (y - mm) ** 2, 0);
+      const res = (k) => { const x = rows.map((t) => cols[k][t]), mx = x.reduce((p, q) => p + q, 0) / x.length;
+        let cv = 0; x.forEach((v, i) => { cv += (v - mx) * (m[i] - mm); }); const beta = cv / vm;
+        const out = new Array(cols[k].length).fill(null); rows.forEach((t, i) => { out[t] = x[i] - beta * m[i]; }); return out; };
+      series = { [a]: res(a), [b]: res(b) };
+    }
+    const roll = rollingPair(series, a, b, 63, null);
+    el("hm-pair-title").textContent = `${a} and ${b}: correlation over the past 63 trading days${resid ? ", market removed" : ""}`;
+    Plotly.react("hm-pair", [{ x: HM.dates, y: roll, mode: "lines", line: { color: css("--accent"), width: 2 },
+      hovertemplate: "%{x}: %{y:.2f}<extra></extra>", name: `${a} × ${b}` }],
+      Object.assign(base(), { margin: { l: 56, r: 16, t: 16, b: 40 }, showlegend: false,
+        xaxis: { gridcolor: css("--grid") }, yaxis: { title: "correlation", range: [-0.6, 1], gridcolor: css("--grid"), zeroline: true, zerolinecolor: css("--grid") } }),
+      { displaylogo: false, responsive: true });
+  };
+  el("hm").addEventListener("change", update);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", update);
+  update();
+})();
+</script>
