@@ -29,19 +29,36 @@ def kendall_to_pearson(tau):
 def resampled_returns(R: pd.DataFrame, freq: str) -> pd.DataFrame:
     """Non-overlapping returns over each period (e.g. "W-FRI", "ME", "QE") from daily returns."""
     px = (1 + R.fillna(0)).cumprod().where(R.notna())
-    return px.resample(freq).last().pct_change(fill_method=None).iloc[1:]
+    out = px.resample(freq).last().pct_change(fill_method=None).iloc[1:]
+    if len(out) and out.index[-1] > R.index[-1]:  # the last period hasn't finished
+        out = out.iloc[:-1]
+    return out
 
 
-def split_day(table: pd.DataFrame, symbols: list[str],
-              max_reversal: float = 0.10) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_day(table: pd.DataFrame, symbols: list[str], max_reversal: float = 0.10,
+              fixes=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Overnight and intraday returns. Opens are put on the adjusted scale with each day's
-    adj_close / close factor."""
+    adj_close / close factor. Stock-days repaired in the fixes file (unadjusted corporate actions,
+    bad prints) are dropped, and so are days before a `start` row."""
+    from ch.data import FIXES
+
+    table_fixes = pd.read_csv(fixes or FIXES, parse_dates=["date"])
     adj, close = table["adj_close"][symbols], table["close"][symbols]
     open_adj = table["open"][symbols] * adj / close
     overnight = open_adj / adj.shift(1) - 1
     intraday = adj / open_adj - 1
     bad = ((overnight.abs() > max_reversal) & (intraday.abs() > max_reversal)
            & (np.sign(overnight) != np.sign(intraday)))
+    for row in table_fixes.itertuples():
+        if row.symbol not in symbols:
+            continue
+        if row.action == "start":
+            bad.loc[bad.index < row.date, row.symbol] = True
+        elif row.date in bad.index:
+            bad.loc[row.date, row.symbol] = True
+            later = bad.index[bad.index > row.date]
+            if row.action == "blank" and len(later):  # the day after a blanked price too
+                bad.loc[later[0], row.symbol] = True
     return overnight.mask(bad), intraday.mask(bad)
 
 

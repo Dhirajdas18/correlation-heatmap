@@ -55,18 +55,21 @@ def ewma_corr(z: np.ndarray, lam: float = 0.94, seed: int = 60) -> np.ndarray:
     return out
 
 
-def _dcc_path(z, a, b, qbar):
+def dcc_corr(z: np.ndarray, a: float, b: float, qbar="expanding", seed: int = 60) -> np.ndarray:
+    """DCC correlation forecasts. The long-run target Q̄ is "expanding" (the average of z zᵀ over
+    the days before each forecast, so nothing from the day or after is used), or a fixed matrix
+    estimated elsewhere (for example on a period before the test). Days before `seed` are NaN."""
     t, n = z.shape
-    out = np.empty((t, n, n))
-    q = qbar.copy()
-    for i in range(t):
+    out = np.full((t, n, n), np.nan)
+    acc = np.einsum("ti,tj->ij", z[:seed], z[:seed])
+    fixed = None if isinstance(qbar, str) else np.asarray(qbar, float)
+    q = (acc / seed) if fixed is None else fixed.copy()
+    for i in range(seed, t):
         out[i] = q
-        q = (1 - a - b) * qbar + a * np.outer(z[i], z[i]) + b * q
-    return out
-
-
-def dcc_corr(z: np.ndarray, a: float, b: float) -> np.ndarray:
-    return _scale(_dcc_path(z, a, b, np.corrcoef(z.T)))
+        target = acc / i if fixed is None else fixed
+        acc += np.outer(z[i], z[i])
+        q = (1 - a - b) * target + a * np.outer(z[i], z[i]) + b * q
+    return _scale(out)
 
 
 def dcc_fit(z: np.ndarray, max_pairs: int = 300, seed: int = 0) -> tuple[float, float]:

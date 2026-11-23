@@ -88,9 +88,8 @@ def test_browser_weekly_returns_match_python():
     cols = {k: list(R[k]) for k in R}
     js = _node(f"m.toWeekly({json.dumps(cols)}, {json.dumps(dates)})")
     py = resampled_returns(R, "W-FRI")
-    got = np.array(js["cols"]["A1"][1:])  # the first, part week has no starting price in Python
-    assert got == pytest.approx(py["A1"].to_numpy()[: len(got)], rel=1e-9)
-    assert js["dates"][1] == f"{py.index[0]:%Y-%m-%d}"
+    assert np.array(js["cols"]["A1"]) == pytest.approx(py["A1"].to_numpy(), rel=1e-9)
+    assert js["dates"] == list(py.index.strftime("%Y-%m-%d"))
 
 
 def test_browser_eigenvalues_match_numpy():
@@ -106,19 +105,23 @@ def test_browser_eigenvalues_match_numpy():
 
 def test_browser_ewma_pair_correlation():
     R = _data(seed=8)
-    cols = {k: [None if np.isnan(x) else x for x in R[k]] for k in R}
+    x, y = R["A1"].to_numpy().copy(), R["C2"].to_numpy().copy()
+    x[40] = np.nan  # a gap inside the seed period: seed on days both have
+    cols = {k: [None if np.isnan(v) else v for v in R[k]] for k in R}
+    cols["A1"][40] = None
     js = _node(f"m.ewmaPair({json.dumps(cols)}, 'A1', 'C2', 0.94, 60)")
-    x, y = R["A1"].to_numpy(), R["C2"].to_numpy()
-    first = int(np.argmax(~np.isnan(x)))
-    sxx, syy, sxy = (np.mean(v) for v in (x[first:first + 60] ** 2, y[first:first + 60] ** 2,
-                                          x[first:first + 60] * y[first:first + 60]))
+    both = np.flatnonzero(~np.isnan(x) & ~np.isnan(y))[:60]
+    start = both[-1] + 1
+    sxx, syy, sxy = (np.mean(v) for v in (x[both] ** 2, y[both] ** 2, x[both] * y[both]))
     exp = {}
-    for t in range(first + 60, len(x)):
+    for t in range(start, len(x)):
         exp[t] = sxy / np.sqrt(sxx * syy)  # forecast for day t from days before it
+        if np.isnan(x[t]) or np.isnan(y[t]):
+            continue
         sxx = 0.94 * sxx + 0.06 * x[t] ** 2
         syy = 0.94 * syy + 0.06 * y[t] ** 2
         sxy = 0.94 * sxy + 0.06 * x[t] * y[t]
-    assert js[first + 59] is None
+    assert js[start - 1] is None
     assert [js[t] for t in exp] == pytest.approx(list(exp.values()), rel=1e-9)
 
 

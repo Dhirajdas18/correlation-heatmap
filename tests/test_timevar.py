@@ -71,3 +71,15 @@ def test_qlike_is_smallest_at_the_true_variance():
     r = rng.normal(0, 2, 100_000)
     losses = {v: qlike(np.full(len(r), v), r) for v in (2.0, 4.0, 8.0)}
     assert min(losses, key=losses.get) == 4.0
+
+
+def test_dcc_with_expanding_long_run_average_uses_past_days_only():
+    Z = _two_regimes(seed=4).to_numpy()
+    c = dcc_corr(Z, 0.02, 0.95, qbar="expanding")
+    z2 = Z.copy()
+    z2[2000:] *= -1
+    c2 = dcc_corr(z2, 0.02, 0.95, qbar="expanding")
+    assert np.allclose(c2[2000], c[2000])
+    fixed = dcc_corr(Z, 0.02, 0.95, qbar=np.corrcoef(Z[:500].T))
+    fixed2 = dcc_corr(z2, 0.02, 0.95, qbar=np.corrcoef(Z[:500].T))
+    assert np.allclose(fixed2[2000], fixed[2000])

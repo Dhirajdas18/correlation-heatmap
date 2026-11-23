@@ -36,9 +36,10 @@ stock's beta × NIFTY's daily return (beta from the same days) before correlatin
 - **The market dominates:** the average pair correlated 0.26 (0.41 within the same NSE sector). The tightest
   pairs were ADANIENT–ADANIPORTS 0.81, BAJFINANCE–BAJAJFINSV 0.77, INFY–TCS 0.74 and JSWSTEEL–TATASTEEL 0.74;
   the loosest HINDUNILVR–ONGC 0.03.
-- **Raw correlations cluster by how much a stock follows the market:** cut into 12 clusters, one held 29 of
-  the 50 stocks, and the grouping matched NSE's sector labels with an adjusted Rand index of 0.16 (1 = the
-  same grouping, 0 = unrelated).
+- **Raw correlations cluster mostly by how much a stock follows the market:** cut into 12 clusters, one
+  held 29 of the 50 stocks; those 29 correlated 0.59 with NIFTY on average (beta 1.17), the other 21 0.40
+  (beta 0.76). The grouping matched NSE's sector labels with an adjusted Rand index of 0.16 (1 = the same
+  grouping, 0 = unrelated).
 - **With the market removed, sectors appear (adjusted Rand 0.35):** IT (TCS, INFY, HCLTECH, TECHM); private
   banks (HDFCBANK, ICICIBANK, AXISBANK, KOTAKBANK); Bajaj Finance, Bajaj Finserv and Shriram Finance;
   the two insurers; autos; cement; consumer staples with Asian Paints and Titan; pharma with the two
@@ -59,19 +60,19 @@ stock's beta × NIFTY's daily return (beta from the same days) before correlatin
   insurers, and BSE and JIOFIN with the recent listings); five of its stocks averaged 0.02 to 0.10 with the
   rest of it. ONGC and KOTAKBANK are near-ties (within 0.01).
 
-### 2. Ten of 3,181 days lifted the average correlation from 0.241 to 0.275, and overnight gaps correlated twice as much as daytime moves (0.46 against 0.22)
+### 2. Ten of 3,181 days lifted the average correlation from 0.241 to 0.275, and overnight gaps correlated twice as much as daytime moves (0.47 against 0.22)
 
 <a href="docs/img/meas_overnight.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_overnight.png"><img src="docs/img/meas_overnight.gif" alt="Average correlation between NIFTY 50 stocks of overnight gaps and of intraday moves, by year" width="720"></picture></a>
 
 The 43 of today's NIFTY 50 stocks with prices on every day from January 2014 to November 2026 (3,181 days).
 Overnight is the previous close to the open, intraday the open to the close; the two multiply back to the
 day's return. Yahoo's opening prices are wrong on some demerger days (ADANIENT showed a +220% gap on
-3 June 2015), so 88 stock-days whose overnight and intraday moves were both over 10% in opposite directions
-were dropped.
+3 June 2015), so 92 stock-days were dropped: those whose overnight and intraday moves were both over 10% in
+opposite directions, and those repaired in the fixes file (unadjusted bonuses and demergers).
 
-- **Overnight moves were shared, daytime moves less so:** the average pair correlated 0.46 overnight and
+- **Overnight moves were shared, daytime moves less so:** the average pair correlated 0.47 overnight and
   0.22 intraday, and overnight was higher in every year from 2014 to 2026 (0.71 against 0.33 in 2020).
-  Overnight gaps carried 21% of the average stock's daily variance.
+  Overnight gaps carried 20% of the average stock's daily variance.
 
 <table><tr>
 <td><a href="docs/img/meas_methods.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_methods.png"><img src="docs/img/meas_methods.gif" alt="Average correlation by Pearson, Pearson without the ten biggest market days, and rank correlations converted to Pearson's scale"></picture></a></td>
@@ -83,9 +84,9 @@ were dropped.
   average Pearson correlation from 0.275 to 0.241. Rank correlations count each day by its order only:
   Spearman 0.256 and Kendall 0.176, which on Pearson's scale (2·sin(π·ρs/6) and sin(π·τ/2), exact for
   normal data) are 0.267 and 0.272.
-- **Horizon (right):** daily 0.275, weekly 0.279, monthly 0.295, quarterly 0.337. The 90% ranges, from
-  resampling whole months, overlap (daily 0.238–0.312, quarterly 0.242–0.420), so 13 years can't separate
-  them.
+- **Horizon (right):** daily 0.275, weekly 0.279, monthly 0.294, quarterly 0.339 (unfinished last
+  periods left out). The 90% ranges, from resampling whole months, overlap (daily 0.238–0.312, quarterly
+  0.238–0.423), so 13 years can't separate them.
 
 ### 3. Only 4 of 43 eigenvalues stood above the noise band; the market factor's share peaked after the 2020 crash, not before it, and cleaning the matrix changed nothing out of sample
 
@@ -120,7 +121,7 @@ band, (1 ± √(N/T))², here 0.78 to 1.25. Eigenvalues above it are real common
   ("clipping"), and held for 6 months. Over 25 periods both predicted 0.69% daily volatility and delivered
   0.79%; clipping changed realised volatility by 0.001 points.
 
-### 4. Stocks moved together 0.24 on joint falls and 0.11 on joint rises; DCC forecast portfolio risk best, significantly so for IT against banks
+### 4. Stocks moved together 0.24 on joint falls and 0.11 on joint rises; DCC's edge in forecasting risk was small and depended on how its long-run average was set
 
 <a href="docs/img/time_exceed.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/time_exceed.png"><img src="docs/img/time_exceed.gif" alt="Average correlation of NIFTY 50 stock pairs on days both fell, or both rose, more than theta standard deviations, against a normal distribution" width="720"></picture></a>
 
@@ -141,17 +142,21 @@ the same and both shrink as θ grows.
 </tr></table>
 
 Each tracker forecasts tomorrow's correlation from days before it: EWMA (λ 0.94), DCC(1,1) (Engle 2002;
-its two settings, a = 0.007 and b = 0.978, estimated on 2010–2013 only), rolling 63 and 250 days, and the
-average of all past days.
+its two settings, a = 0.007 and b = 0.977, estimated on 2011–2013 only), rolling 63 and 250 days, and the
+average of all past days. DCC pulls towards a long-run average correlation, computed either from all days
+before each forecast or once from 2011–2013.
 
-- **How much correlation moved (left):** DCC's average ranged from 0.19 to 0.37 (24 March 2020); EWMA's
+- **How much correlation moved (left):** DCC's average ranged from 0.19 to 0.35 (24 March 2020); EWMA's
   from 0.09 to 0.65 and the 63-day window's from 0.09 to 0.60, both much jumpier.
 - **Which forecast was right (right):** each method's correlation, combined with the same EWMA volatilities,
   forecast the daily variance of two portfolios, scored by QLIKE (log σ̂² + r²/σ̂², lowest for the true
-  variance) against the all-past-days forecast, with Newey-West t-statistics. DCC had the lowest loss on
-  both: −0.016 (t −1.6, not significant) for an equal-weight portfolio of the 43, and −0.015 (t −3.2) for
-  long IT (TCS, INFY, HCLTECH, TECHM) against short private banks (HDFCBANK, ICICIBANK, AXISBANK,
-  KOTAKBANK). EWMA and the rolling windows were within t ±0.8 of the all-past forecast.
+  variance) against the all-past-days forecast, with Newey-West t-statistics. For long IT (TCS,
+  INFY, HCLTECH, TECHM) against short private banks (HDFCBANK, ICICIBANK, AXISBANK, KOTAKBANK), DCC with
+  the all-past-days average had a lower loss (−0.009, t −2.9); with the 2011–2013 average it was no
+  different (−0.0004, t −0.1). For an equal-weight portfolio of the 43 neither DCC was significantly
+  better (t −1.5 and −1.4). EWMA and the rolling windows were within t ±0.7 of the all-past forecast.
+  (An earlier version took DCC's long-run average from all of 2010–2026, including the test years, and
+  reported −0.015, t −3.2.)
 
 ### 5. The market's skeleton: 49 links averaging 0.50 correlation; the tree was tightest in 2020, and only 24–48% of its links survived from one year to the next
 
@@ -161,7 +166,7 @@ The minimum spanning tree keeps the N − 1 links, with distance √(2(1 − cor
 stocks at the smallest total distance: each stock joins the tree through the stock it moves most with,
 and there are no loops (Mantegna 1999). A stock with many links is a hub.
 
-- **Last 3 years (above):** the 49 links averaged 0.50 correlation, against 0.27 for all pairs. 23 of the
+- **Last 3 years (above):** the 49 links averaged 0.50 correlation, against 0.26 for all pairs. 23 of the
   50 stocks were leaves (one link). The biggest hub was Tata Steel (5 links), then UltraTech Cement,
   Shriram Finance, NTPC and L&T (4 each). The private banks, Bajaj Finance and Finserv, Shriram and the two
   insurers hung off one branch (SBI, Jio Financial and BSE sat elsewhere); IT, pharma with the hospitals,
@@ -178,7 +183,7 @@ One tree per calendar year, 2011 to 2026 (2026 to November), for the 43 stocks w
   all-pairs average (0.15 to 0.43).
 - **Turnover (left):** 24% (2015) to 48% (2022) of a year's links were also in the next year's tree.
 - **Hubs (right):** the stock with the most links was different from the year before in all 15 years
-  (ties broken by name order, in 2021 and 2026). ICICI Bank led 5 times, with 13 links in 2011; L&T twice.
+  (ties go to the alphabetically first, in 2021 and 2026). ICICI Bank led 5 times, with 13 links in 2011; L&T twice.
 
 ### 6. 43 stocks held equally were worth 2.2 to 5.8 independent bets; hierarchical risk parity landed between inverse volatility and minimum variance and paid the most in costs
 
@@ -187,7 +192,7 @@ One tree per calendar year, 2011 to 2026 (2026 to November), for the 43 stocks w
 How many independent bets is a portfolio? For a portfolio, the square of the diversification ratio
 (Σ wᵢσᵢ / σ_p, Choueifaty) counts them: N for N unrelated, equally risky stocks held equally. For the
 whole market, the participation ratio of the correlation matrix's eigenvalues, (Σλ)² / Σλ², does the same.
-The 43 stocks with prices every day, one calendar year at a time, 2010–2026.
+The 43 stocks with prices every day, one calendar year at a time, 2011–2026.
 
 - **Few bets:** held equally, the 43 stocks were worth 2.2 (2020) to 5.8 (2017) independent bets. The
   correlation matrix itself ranged from 4.6 (2020) to 18.1 (2017).
@@ -244,14 +249,14 @@ next day.
 <td><a href="docs/img/cross_rolling.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/cross_rolling.png"><img src="docs/img/cross_rolling.gif" alt="Past-year correlation of NIFTY's weekly returns with the US market, gold and USD/INR, 2010 to 2026"></picture></a></td>
 </tr></table>
 
-Weekly (Friday-to-Friday, each market at its own last close), January 2009 to November 2026, 934 weeks:
+Weekly (Friday-to-Friday, each market at its own last close), January 2009 to 20 November 2026, 933 weeks:
 NIFTY ETF against the S&P 500 total return (in dollars and in rupees), the gold ETF and USD/INR.
 
 - **Overall:** NIFTY correlated 0.48 with the US market in dollars (0.33 in rupees), −0.40 with the dollar's
   price in rupees and −0.06 with gold.
 - **Over time (right):** the past year's link to the US peaked at 0.81 (March 2020) and was 0.38 at the
-  end of October 2026; the week to 6 November (NIFTY +8.1%, US −2.7%) took it to 0.17, and two more
-  opposite weeks to 0.00. Against the dollar it stayed between −0.68 and −0.11; against gold it swung
+  end of October 2026; the week to 6 November (NIFTY +8.1%, US −2.7%) took it to 0.17, and the week to
+  20 November (NIFTY +2.6%, US −8.6%) to 0.04. Against the dollar it stayed between −0.68 and −0.11; against gold it swung
   between −0.48 and 0.33.
 
 ## Quick start

@@ -12,7 +12,7 @@ function corrOf(series) {  // Pearson correlation matrix of equal-length arrays
   const z = series.map((x) => {
     const m = x.reduce((a, b) => a + b, 0) / n;
     const d = x.map((v) => v - m), s = Math.sqrt(d.reduce((a, b) => a + b * b, 0));
-    return d.map((v) => v / s);
+    return d.map((v) => s > 0 ? v / s : 0);  // a series that never moves correlates 0
   });
   const c = [];
   for (let i = 0; i < k; i++) {
@@ -37,9 +37,12 @@ function ranks(x) {  // ranks 1..n, ties get their average rank (as pandas and s
 function toWeekly(cols, dates) {
   const friday = (iso) => { const d = new Date(iso + "T00:00:00Z"), add = (5 - d.getUTCDay() + 7) % 7;
     d.setUTCDate(d.getUTCDate() + add); return d.toISOString().slice(0, 10); };
-  const keys = dates.map(friday), weeks = [...new Set(keys)], out = {};
+  const keys = dates.map(friday), all = [...new Set(keys)], out = {};
+  // drop the first week (it may have started before the data) and a last week not yet finished,
+  // as the Python version does
+  const weeks = all.slice(1).filter((w) => w <= dates[dates.length - 1]);
   for (const [k, v] of Object.entries(cols)) {
-    const acc = new Map(weeks.map((w) => [w, 1]));
+    const acc = new Map(all.map((w) => [w, 1]));
     v.forEach((x, t) => { const w = keys[t]; if (acc.get(w) === null) return; acc.set(w, x === null ? null : acc.get(w) * (1 + x)); });
     out[k] = weeks.map((w) => acc.get(w) === null ? null : acc.get(w) - 1);
   }
@@ -108,11 +111,13 @@ function rollingPair(cols, a, b, w, index) {
 // seeded with the first `seed` days both have; null before that.
 function ewmaPair(cols, a, b, lam, seed = 60) {
   const x = cols[a], y = cols[b], n = x.length, out = new Array(n).fill(null);
-  let first = 0; while (first < n && (x[first] === null || y[first] === null)) first++;
-  if (first + seed >= n) return out;
-  let sxx = 0, syy = 0, sxy = 0;
-  for (let t = first; t < first + seed; t++) { sxx += x[t] * x[t] / seed; syy += y[t] * y[t] / seed; sxy += x[t] * y[t] / seed; }
-  for (let t = first + seed; t < n; t++) {
+  let sxx = 0, syy = 0, sxy = 0, got = 0, start = n;
+  for (let t = 0; t < n && got < seed; t++) {  // seed on the first `seed` days both have
+    if (x[t] === null || y[t] === null) continue;
+    sxx += x[t] * x[t] / seed; syy += y[t] * y[t] / seed; sxy += x[t] * y[t] / seed;
+    if (++got === seed) start = t + 1;
+  }
+  for (let t = start; t < n; t++) {
     out[t] = sxy / Math.sqrt(sxx * syy);
     if (x[t] === null || y[t] === null) continue;
     sxx = lam * sxx + (1 - lam) * x[t] * x[t]; syy = lam * syy + (1 - lam) * y[t] * y[t]; sxy = lam * sxy + (1 - lam) * x[t] * y[t];

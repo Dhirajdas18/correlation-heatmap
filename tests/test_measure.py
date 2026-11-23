@@ -55,3 +55,23 @@ def test_bootstrap_avg_corr_is_centred_on_the_sample_value():
     point, lo, hi = bootstrap_avg_corr(R, n_boot=200, seed=0)
     assert lo < point < hi
     assert point == pytest.approx(upper(R.corr()).mean())
+
+
+def test_split_day_masks_days_in_the_fixes_file(tmp_path):
+    idx = pd.bdate_range("2021-01-01", periods=4)
+    close = pd.DataFrame({"A": [100.0, 102.0, 51.0, 52.0]}, index=idx)  # unadjusted 1:1 bonus
+    table = pd.concat({"open": close.shift(1).fillna(100.0) * [1, 1, 0.5, 1][0], "close": close,
+                       "adj_close": close}, axis=1)
+    table.columns.names = ["field", "symbol"]
+    fixes = tmp_path / "f.csv"
+    fixes.write_text("symbol,date,action,reason\nA,2021-01-05,zero,bonus\n")
+    on, intra = split_day(table, ["A"], fixes=fixes)
+    assert np.isnan(on.loc["2021-01-05", "A"]) and np.isnan(intra.loc["2021-01-05", "A"])
+    assert np.isfinite(on.loc["2021-01-06", "A"])
+
+
+def test_resampled_returns_drop_an_unfinished_last_week():
+    idx = pd.bdate_range("2024-01-01", "2024-01-17")  # ends on a Wednesday
+    R = pd.DataFrame({"A": 0.01}, index=idx)
+    w = resampled_returns(R, "W-FRI")
+    assert w.index[-1] == pd.Timestamp("2024-01-12")

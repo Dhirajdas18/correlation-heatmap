@@ -29,8 +29,11 @@ def us_during_gap(nse_dates, us_ret: pd.Series) -> pd.Series:
 
 
 def weekly_returns(series: dict) -> pd.DataFrame:
-    return pd.DataFrame({k: v.dropna().resample("W-FRI").last().pct_change()
-                         for k, v in series.items()}).dropna()
+    """Friday-to-Friday returns; a final week the data hasn't reached the end of is dropped."""
+    out = pd.DataFrame({k: v.dropna().resample("W-FRI").last().pct_change()
+                        for k, v in series.items()}).dropna()
+    last = min(v.dropna().index[-1] for v in series.values())
+    return out[out.index <= last]
 
 
 def regress(y, x) -> tuple[float, float, float]:

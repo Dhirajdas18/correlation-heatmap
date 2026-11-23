@@ -388,7 +388,7 @@ def report_time(out_dir: Path) -> dict:
 
     R = returns()
     syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
-    X = R.loc["2010-01-01":, syms].dropna()
+    X = R.loc["2011-01-01":, syms].dropna()  # all 43 trade from Nov 2010
     Zdf, vol = standardise(X, with_vol=True)
     Zdf = Zdf.dropna()
     Xs, vol = X.loc[Zdf.index], vol.loc[Zdf.index]
@@ -398,7 +398,10 @@ def report_time(out_dir: Path) -> dict:
     test = ~pre
     T = len(z)
 
-    paths = {"EWMA (λ 0.94)": ewma_corr(z, 0.94), "DCC": dcc_corr(z, a, b)}
+    qbar_pre = np.corrcoef(z[pre].T)
+    paths = {"EWMA (λ 0.94)": ewma_corr(z, 0.94),
+             "DCC": dcc_corr(z, a, b, qbar="expanding"),
+             "DCC, long-run from 2011–13": dcc_corr(z, a, b, qbar=qbar_pre)}
     for w in (63, 250):
         roll = np.full((T, len(syms), len(syms)), np.nan)
         for i in range(w, T):
@@ -412,9 +415,9 @@ def report_time(out_dir: Path) -> dict:
     fig, ax = plt.subplots(figsize=(9, 4.8))
     idx = Zdf.index[test]
     avg = {k: avg_offdiag(v[test]) for k, v in paths.items()}
-    for (k, v), c, lw in zip(avg.items(), (plots.SERIES[1], plots.SERIES[0], plots.MUTED,
-                                           plots.SERIES[2], plots.TEXT),
-                             (1.2, 1.8, 0.8, 1.4, 1.4), strict=True):
+    for (k, v), c, lw in zip(avg.items(), (plots.SERIES[1], plots.SERIES[0], plots.SERIES[6],
+                                           plots.MUTED, plots.SERIES[2], plots.TEXT),
+                             (1.2, 1.8, 1.2, 0.8, 1.4, 1.4), strict=True):
         ax.plot(idx, v, color=c, lw=lw, label=k)
     ax.set_ylabel("average correlation between stocks (forecast for the day)")
     ax.legend(loc="upper left", fontsize=8, ncol=2)
@@ -467,7 +470,7 @@ def report_time(out_dir: Path) -> dict:
         ax.xaxis.set_major_locator(plt.MaxNLocator(4))
         ax.axvline(0, color=plots.TEXT_2, lw=0.8)
         ax.set_yticks(range(len(methods)),
-                      [f"{m} (t {t_:.1f})".replace("-", "−") for m, t_ in
+                      [f"{m} (t {t_:.1f}".replace("t -", "t −") + ")" for m, t_ in
                        zip(methods, tvals, strict=True)], fontsize=8)
         ax.tick_params(axis="y", labelleft=True)
         ax.set_title(pname, fontsize=10, fontweight="normal")
@@ -512,7 +515,7 @@ def report_time(out_dir: Path) -> dict:
 
     return {
         "stocks, test days": (len(syms), int(test.sum()), f"{idx[0]:%d %b %Y}"),
-        "DCC a, b (fit 2010-13)": (round(a, 4), round(b, 4)),
+        "DCC a, b (fit 2011-13)": (round(a, 4), round(b, 4)),
         "average correlation by tracker: mean, min, max": {
             k: (round(float(np.nanmean(v)), 3), round(float(np.nanmin(v)), 3),
                 round(float(np.nanmax(v)), 3)) for k, v in avg.items()},
@@ -595,7 +598,8 @@ def report_network(out_dir: Path) -> dict:
                  f"{min(s_):.0%}–{max(s_):.0%} of links survived each year")
     plots.save(fig, out_dir, "net_years")
 
-    degs = pd.DataFrame({y: degree(years[y][0], len(syms)) for y in ys}, index=syms)
+    degs = pd.DataFrame({y: degree(years[y][0], len(syms)) for y in ys},
+                        index=syms).sort_index()  # ties go to the alphabetically first
     top = degs.idxmax()
     changes = int((top != top.shift()).iloc[1:].sum())
     keep = sorted(set(top) | set(degs.index[degs.max(axis=1) >= 6]),
@@ -648,7 +652,7 @@ def report_diversify(out_dir: Path) -> dict:
 
     R = returns()
     syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
-    X = R.loc["2010-01-01":, syms].dropna()
+    X = R.loc["2011-01-01":, syms].dropna()  # all 43 trade from Nov 2010
     ew = np.full(len(syms), 1 / len(syms))
     years = sorted(set(X.index.year))
     bets = {y: (diversification_ratio(ew, X.loc[str(y)].cov()) ** 2,
