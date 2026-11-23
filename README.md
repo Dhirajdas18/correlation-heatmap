@@ -16,7 +16,7 @@ pair's correlation through time. It runs in your browser on five years of daily 
 
 - [x] Heatmap ordered by hierarchical clustering, with and without the market; clusters against NSE sectors
 - [x] Measurement: Pearson against rank correlation; daily to quarterly returns; overnight against intraday; rank and weekly options in the heatmap
-- [ ] Noise against signal: random matrix theory, the market factor's share over time
+- [x] Noise against signal: random matrix theory, the market factor's share over time, cleaning the matrix; factor count in the heatmap
 - [ ] Correlation through time: rolling, EWMA, DCC; falling together against rising together
 - [ ] Networks: minimum spanning tree, hubs, 2020
 - [ ] Diversification: effective number of bets; hierarchical risk parity walk-forward
@@ -87,12 +87,45 @@ were dropped.
   resampling whole months, overlap (daily 0.238–0.312, quarterly 0.242–0.420), so 13 years can't separate
   them.
 
+### 3. Only 4 of 43 eigenvalues stood above the noise band; the market factor's share peaked after the 2020 crash, not before it, and cleaning the matrix changed nothing out of sample
+
+<a href="docs/img/rmt_spectrum.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/rmt_spectrum.png"><img src="docs/img/rmt_spectrum.gif" alt="Eigenvalues of the NIFTY 50 correlation matrix against the Marchenko-Pastur noise band and shuffled returns" width="720"></picture></a>
+
+A 43×43 correlation matrix (the stocks with prices every day from January 2014 to November 2026, 3,181 days)
+has 43 eigenvalues that add up to 43; each measures how much movement one independent pattern explains.
+Random matrix theory gives the range they would fill if the stocks were unrelated: the Marchenko-Pastur
+band, (1 ± √(N/T))², here 0.78 to 1.25. Eigenvalues above it are real common movement.
+
+- **Four real factors:** 12.95 (the market, 30% of all movement), 2.37, 1.90 and 1.58; together the other
+  three explained 14%. The fifth, 1.24, sat just inside the band. Shuffling each stock's days in time (same
+  returns, no co-movement) gave eigenvalues from 0.80 to 1.23, matching the band. 29 of the 43 fell below
+  the band's lower edge; since the eigenvalues add up to 43 and the four factors take 18.8, the other 39
+  average 0.62.
+
+<table><tr>
+<td><a href="docs/img/rmt_factors.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/rmt_factors.png"><img src="docs/img/rmt_factors.gif" alt="Stocks with the largest positive and negative loadings on factors 2, 3 and 4"></picture></a></td>
+<td><a href="docs/img/rmt_share.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/rmt_share.png"><img src="docs/img/rmt_share.gif" alt="Market factor's share of all movement over the past year, monthly, with NIFTY's fall from its peak"></picture></a></td>
+</tr></table>
+
+- **What the other three are (left):** factor 2 set IT (INFY, TCS, HCLTECH, TECHM) against banks and
+  state-owned firms; factor 3 commodities and state-owned firms (ONGC, COALINDIA, NTPC, Tata Steel, Hindalco)
+  against consumer names and lenders; factor 4 pharma with HUL and Nestlé against IT and ICICI Bank.
+- **The market factor's share over time (right):** measured on each past year, monthly from 2009, it
+  averaged 29%, fell to 18% in January 2018 and peaked at 46% in May 2020, after the March 2020 crash.
+  Across 202 months its level did not predict the next month's NIFTY return (rank correlation 0.06,
+  p = 0.39), nor did its 3-month change (0.02, p = 0.78). It went with higher volatility the next month
+  (0.25), but this month's volatility did that better (0.61).
+- **Cleaning didn't help:** every 6 months from 2014, a minimum-variance portfolio (shorting allowed) was
+  built from the past 2 years' covariance, raw or with the noise eigenvalues replaced by their average
+  ("clipping"), and held for 6 months. Over 25 periods both predicted 0.69% daily volatility and delivered
+  0.79%; clipping changed realised volatility by 0.001 points.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # also: measure; charts -> out/
+uv run ch report heatmap                    # also: measure, rmt; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -103,8 +136,10 @@ uv run pytest
   optimal leaf order, adjusted Rand index, sector fit, and market removal.
 - `src/ch/measure.py`: rank correlations and their conversion to Pearson's scale, returns over longer
   periods, overnight and intraday returns, and a month-block bootstrap of the average correlation.
+- `src/ch/rmt.py`: eigenvalues, the Marchenko-Pastur band and density, shuffling, eigenvalue clipping and
+  the market factor's share.
 - `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
-  removal and clustering in the browser; a
+  removal, clustering and eigenvalues (Jacobi) in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).
 - `src/ch/data.py`: Yahoo prices for today's NIFTY 50, the index and two ETFs since 2007, with known errors
   repaired from `docs/data/yahoo_fixes.csv`; the S&P 500 total-return index and USD/INR in a separate

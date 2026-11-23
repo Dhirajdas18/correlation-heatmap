@@ -104,4 +104,32 @@ function rollingPair(cols, a, b, w, index) {
   return out;
 }
 
-if (typeof module !== "undefined") module.exports = { ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
+// Eigenvalues of a symmetric matrix, largest first (cyclic Jacobi rotations).
+function eigenvalues(c) {
+  const n = c.length, a = c.map((r) => r.slice());
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-22) break;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) {
+      if (Math.abs(a[p][q]) < 1e-300) continue;
+      const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+      const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const cs = 1 / Math.sqrt(t * t + 1), sn = t * cs;
+      for (let k = 0; k < n; k++) {  // rotate columns p, q then rows p, q
+        const akp = a[k][p], akq = a[k][q];
+        a[k][p] = cs * akp - sn * akq; a[k][q] = sn * akp + cs * akq;
+      }
+      for (let k = 0; k < n; k++) {
+        const apk = a[p][k], aqk = a[q][k];
+        a[p][k] = cs * apk - sn * aqk; a[q][k] = sn * apk + cs * aqk;
+      }
+    }
+  }
+  return a.map((r, i) => r[i]).sort((x, y) => y - x);
+}
+
+// Marchenko-Pastur noise band for n series of t observations.
+function mpBounds(n, t) { const q = n / t; return [(1 - Math.sqrt(q)) ** 2, (1 + Math.sqrt(q)) ** 2]; }
+
+if (typeof module !== "undefined") module.exports = { eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };

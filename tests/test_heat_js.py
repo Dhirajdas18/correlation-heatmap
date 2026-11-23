@@ -91,3 +91,14 @@ def test_browser_weekly_returns_match_python():
     got = np.array(js["cols"]["A1"][1:])  # the first, part week has no starting price in Python
     assert got == pytest.approx(py["A1"].to_numpy()[: len(got)], rel=1e-9)
     assert js["dates"][1] == f"{py.index[0]:%Y-%m-%d}"
+
+
+def test_browser_eigenvalues_match_numpy():
+    from ch.rmt import mp_bounds
+
+    R = _data(seed=7)
+    c = R.dropna().corr().to_numpy()
+    js = _node(f"m.eigenvalues({json.dumps(c.tolist())})")
+    assert js == pytest.approx(sorted(np.linalg.eigvalsh(c), reverse=True), abs=1e-8)
+    b = _node("m.mpBounds(43, 3181)")
+    assert b == pytest.approx(list(mp_bounds(43, 3181)))

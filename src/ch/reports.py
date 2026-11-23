@@ -127,6 +127,7 @@ def report_heatmap(out_dir: Path) -> dict:
 
 
 MEASURE_START = "2014-01-01"
+START_ROLL = "2009-01-02"  # rolling windows start once the ETFs and most stocks trade
 
 
 def report_measure(out_dir: Path) -> dict:
@@ -224,4 +225,142 @@ def report_measure(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"heatmap": report_heatmap, "measure": report_measure}
+def _gmv(cov: np.ndarray) -> np.ndarray:
+    """Global minimum-variance weights (shorting allowed): Σ⁻¹1 / 1ᵀΣ⁻¹1."""
+    w = np.linalg.solve(cov, np.ones(len(cov)))
+    return w / w.sum()
+
+
+def report_rmt(out_dir: Path) -> dict:
+    """How much of the NIFTY 50 correlation matrix is signal, the market factor's share over time,
+    and whether cleaning the matrix helps out of sample."""
+    from scipy.stats import spearmanr
+
+    from ch.data import SECTORS, SYMBOLS
+    from ch.rmt import clip, eigen, market_share, mp_bounds, mp_density, shuffle
+
+    R = returns()
+    W = R.loc[MEASURE_START:]
+    syms = [s for s in SYMBOLS if W[s].notna().mean() > 0.99]
+    W = W[syms].dropna()
+    N, T = W.shape[1], W.shape[0]
+    ev, vec = eigen(W.corr())
+    lo, hi = mp_bounds(N, T)
+    ev_sh, _ = eigen(shuffle(W, seed=0).corr())
+    n_sig = int((ev > hi).sum())
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    bins = np.linspace(0, 3, 61)
+    ax.hist(ev[ev < 3], bins=bins, color=plots.SERIES[0], alpha=0.85, density=True,
+            label="NIFTY 50 stocks, 2014–26")
+    ax.hist(ev_sh, bins=bins, histtype="step", color=plots.TEXT_2, lw=1.2, density=True,
+            label="same returns, shuffled in time")
+    x = np.linspace(lo * 0.99, hi * 1.01, 400)
+    ax.plot(x, mp_density(x, N / T), color=plots.SERIES[1], lw=2,
+            label="pure noise (Marchenko-Pastur)")
+    ax.axvline(hi, color=plots.SERIES[1], ls="--", lw=1)
+    for e in ev[1:n_sig]:
+        ax.annotate(f"{e:.2f}", (e, 0.1), xytext=(0, 18), textcoords="offset points", ha="center",
+                    fontsize=8, arrowprops=dict(arrowstyle="-", color=plots.MUTED))
+    ax.text(2.95, 1.6, f"market factor: {ev[0]:.1f} →", ha="right", fontsize=9, color=plots.TEXT)
+    ax.set_xlim(0, 3)
+    ax.set_xlabel(f"eigenvalue of the {N}×{N} correlation matrix")
+    ax.set_ylabel("density")
+    ax.legend(loc="upper right", fontsize=8, bbox_to_anchor=(1, 0.88))
+    ax.set_title(f"Only {n_sig} of {N} eigenvalues stood above the noise band; the market "
+                 f"factor alone explained {ev[0] / N:.0%}")
+    plots.save(fig, out_dir, "rmt_spectrum")
+
+    fig, axes = plt.subplots(1, n_sig - 1, figsize=(10, 4.8), sharex=True)
+    factors = {}
+    for k, ax in zip(range(1, n_sig), np.atleast_1d(axes), strict=True):
+        v = pd.Series(vec[:, k], index=syms)
+        if v.sort_values().iloc[-1] < -v.sort_values().iloc[0]:
+            v = -v  # sign is arbitrary: show the larger side positive
+        ends = pd.concat([v.sort_values().head(5), v.sort_values().tail(5)])
+        factors[k + 1] = ends.round(2).to_dict()
+        cols = [plots.SERIES[0] if x > 0 else plots.SERIES[1] for x in ends]
+        ax.barh(range(len(ends)), ends.values, color=cols)
+        ax.set_yticks(range(len(ends)), [f"{s} ({SHORT[SECTORS[s]]})" for s in ends.index],
+                      fontsize=7)
+        ax.axvline(0, color=plots.TEXT_2, lw=0.8)
+        ax.set_title(f"factor {k + 1} (eigenvalue {ev[k]:.2f})", fontsize=9, fontweight="normal")
+        ax.grid(axis="y", visible=False)
+    fig.suptitle("Beyond the market: IT, commodities and state-owned firms, and pharma each set "
+                 "against the rest", fontweight="bold")
+    fig.tight_layout()
+    plots.save(fig, out_dir, "rmt_factors")
+
+    full = R.loc[START_ROLL:]
+    ends_m = full.resample("ME").last().index
+    share = {}
+    for t in ends_m:
+        win = full.loc[t - pd.DateOffset(years=1):t, SYMBOLS]
+        win = win.loc[:, win.notna().mean() > 0.98].dropna()
+        if win.shape[1] >= 30 and len(win) >= 200:
+            share[t] = market_share(win)
+    share = pd.Series(share)
+    nifty = (1 + full["NIFTY"].fillna(0)).cumprod()
+    dd = nifty / nifty.cummax() - 1
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 5.2), sharex=True,
+                                 gridspec_kw={"height_ratios": [3, 2]})
+    a1.plot(share.index, share.values * 100, color=plots.SERIES[0], lw=2)
+    a1.set_ylabel("market factor's share, %\n(past year)")
+    a2.fill_between(dd.index, dd.values * 100, 0, color=plots.SERIES[1], alpha=0.5, lw=0)
+    a2.set_ylabel("NIFTY below\nits peak, %")
+    a1.set_title(f"The market factor's share peaked at {share.max():.0%} "
+                 f"({share.idxmax():%b %Y}), after the 2020 crash, not before it")
+    plots.save(fig, out_dir, "rmt_share")
+
+    m_px = nifty.resample("ME").last()
+    daily = full["NIFTY"]
+    nxt_ret = (m_px.shift(-1) / m_px - 1)
+    vol = daily.groupby(daily.index.to_period("M")).std()
+    vol.index = vol.index.to_timestamp("M")
+    nxt_vol = vol.shift(-1).reindex(share.index, method="nearest")
+    cur_vol = vol.reindex(share.index, method="nearest")
+    df = pd.DataFrame({"share": share, "d3": share.diff(3), "ret": nxt_ret.reindex(share.index),
+                       "vol": nxt_vol, "cur": cur_vol}).dropna()
+    tests = {"level vs next-month return": spearmanr(df["share"], df["ret"]),
+             "3-month change vs next-month return": spearmanr(df["d3"], df["ret"]),
+             "level vs next-month volatility": spearmanr(df["share"], df["vol"]),
+             "this month's volatility vs next month's": spearmanr(df["cur"], df["vol"])}
+
+    oos = {"raw": [], "clipped": []}
+    hist = R.loc[START_ROLL:, syms].dropna()  # estimation windows reach back before 2014
+    starts = pd.date_range("2014-01-01", W.index[-1] - pd.DateOffset(months=6), freq="6MS")
+    for t0 in starts:
+        est = hist.loc[t0 - pd.DateOffset(years=2):t0 - pd.Timedelta(days=1)]
+        test = hist.loc[t0:t0 + pd.DateOffset(months=6) - pd.Timedelta(days=1)]
+        sd = est.std().to_numpy()
+        for name, c in (("raw", est.corr().to_numpy()), ("clipped", clip(est.corr(), len(est)))):
+            cov = c * np.outer(sd, sd)
+            w = _gmv(cov)
+            pred = float(np.sqrt(w @ cov @ w))
+            real = float((test.to_numpy() @ w).std())
+            oos[name].append((pred, real))
+    oos_out = {k: {"predicted vol (daily %)": round(float(np.mean([a for a, _ in v])) * 100, 3),
+                   "realised vol (daily %)": round(float(np.mean([b for _, b in v])) * 100, 3),
+                   "realised / predicted": round(float(np.mean([b / a for a, b in v])), 2),
+                   "periods": len(v)} for k, v in oos.items()}
+    return {
+        "N, T, q": (N, T, round(N / T, 4)),
+        "noise band": (round(lo, 3), round(hi, 3)),
+        "top eigenvalues": ev[:8].round(2).tolist(),
+        "signal eigenvalues": n_sig,
+        "eigenvalues below the band": int((ev < lo).sum()),
+        "shuffled max / min eigenvalue": (round(ev_sh[0], 3), round(ev_sh[-1], 3)),
+        "share of variance: market, other signal": (round(ev[0] / N, 3),
+                                                     round(ev[1:n_sig].sum() / N, 3)),
+        "factor loadings (ends)": factors,
+        "rolling share: mean, min (date), max (date)": (
+            round(share.mean(), 3), round(share.min(), 3), f"{share.idxmin():%b %Y}",
+            round(share.max(), 3), f"{share.idxmax():%b %Y}"),
+        "predictive tests (Spearman, p)": {k: (round(v.statistic, 3), round(v.pvalue, 3))
+                                           for k, v in tests.items()},
+        "months tested": len(df),
+        "minimum variance out of sample (2-year estimate, next 6 months)": oos_out,
+    }
+
+
+REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt}
