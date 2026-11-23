@@ -8,13 +8,14 @@ against signal, correlation through time, market networks, diversification, and 
 gold and the rupee, measured on NSE data.
 
 **Live heatmap: [dhirajdas18.github.io/correlation-heatmap](https://dhirajdas18.github.io/correlation-heatmap/)**.
-Pick a window, keep or remove the market, order by cluster or by NSE sector, and click any square to see that
+Pick a window, daily or weekly returns, Pearson or rank correlation, keep or remove the market, order by
+cluster or by NSE sector, and click any square to see that
 pair's correlation through time. It runs in your browser on five years of daily returns, rebuilt weekly.
 
 ## Features
 
 - [x] Heatmap ordered by hierarchical clustering, with and without the market; clusters against NSE sectors
-- [ ] Measurement: Pearson against rank correlation; daily, weekly and monthly returns; overnight against intraday
+- [x] Measurement: Pearson against rank correlation; daily to quarterly returns; overnight against intraday; rank and weekly options in the heatmap
 - [ ] Noise against signal: random matrix theory, the market factor's share over time
 - [ ] Correlation through time: rolling, EWMA, DCC; falling together against rising together
 - [ ] Networks: minimum spanning tree, hubs, 2020
@@ -58,12 +59,40 @@ stock's beta × NIFTY's daily return (beta from the same days) before correlatin
   insurers, and BSE and JIOFIN with the recent listings); five of its stocks averaged 0.02 to 0.10 with the
   rest of it. ONGC and KOTAKBANK are near-ties (within 0.01).
 
+### 2. Ten of 3,181 days lifted the average correlation from 0.241 to 0.275, and overnight gaps correlated twice as much as daytime moves (0.46 against 0.22)
+
+<a href="docs/img/meas_overnight.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_overnight.png"><img src="docs/img/meas_overnight.gif" alt="Average correlation between NIFTY 50 stocks of overnight gaps and of intraday moves, by year" width="720"></picture></a>
+
+The 43 of today's NIFTY 50 stocks with prices on every day from January 2014 to November 2026 (3,181 days).
+Overnight is the previous close to the open, intraday the open to the close; the two multiply back to the
+day's return. Yahoo's opening prices are wrong on some demerger days (ADANIENT showed a +220% gap on
+3 June 2015), so 88 stock-days whose overnight and intraday moves were both over 10% in opposite directions
+were dropped.
+
+- **Overnight moves were shared, daytime moves less so:** the average pair correlated 0.46 overnight and
+  0.22 intraday, and overnight was higher in every year from 2014 to 2026 (0.71 against 0.33 in 2020).
+  Overnight gaps carried 21% of the average stock's daily variance.
+
+<table><tr>
+<td><a href="docs/img/meas_methods.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_methods.png"><img src="docs/img/meas_methods.gif" alt="Average correlation by Pearson, Pearson without the ten biggest market days, and rank correlations converted to Pearson's scale"></picture></a></td>
+<td><a href="docs/img/meas_horizon.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/meas_horizon.png"><img src="docs/img/meas_horizon.gif" alt="Average correlation of daily, weekly, monthly and quarterly returns with 90 percent ranges"></picture></a></td>
+</tr></table>
+
+- **A few days carry a lot of the correlation (left):** leaving out the 10 days with the biggest average move
+  (seven of them in March–May 2020, plus 24 August 2015, 20 September 2019 and 4 June 2024) lowered the
+  average Pearson correlation from 0.275 to 0.241. Rank correlations count each day by its order only:
+  Spearman 0.256 and Kendall 0.176, which on Pearson's scale (2·sin(π·ρs/6) and sin(π·τ/2), exact for
+  normal data) are 0.267 and 0.272.
+- **Horizon (right):** daily 0.275, weekly 0.279, monthly 0.295, quarterly 0.337. The 90% ranges, from
+  resampling whole months, overlap (daily 0.238–0.312, quarterly 0.242–0.420), so 13 years can't separate
+  them.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # charts -> out/
+uv run ch report heatmap                    # also: measure; charts -> out/
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -72,7 +101,10 @@ uv run pytest
 
 - `src/ch/cluster.py`: correlation over common days, distance √(2(1 − ρ)), average-linkage clustering with
   optimal leaf order, adjusted Rand index, sector fit, and market removal.
-- `src/ch/heat.js`, `heatmap.html`: the same correlation, market removal and clustering in the browser; a
+- `src/ch/measure.py`: rank correlations and their conversion to Pearson's scale, returns over longer
+  periods, overnight and intraday returns, and a month-block bootstrap of the average correlation.
+- `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
+  removal and clustering in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).
 - `src/ch/data.py`: Yahoo prices for today's NIFTY 50, the index and two ETFs since 2007, with known errors
   repaired from `docs/data/yahoo_fixes.csv`; the S&P 500 total-return index and USD/INR in a separate

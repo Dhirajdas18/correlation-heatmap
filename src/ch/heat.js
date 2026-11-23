@@ -22,9 +22,34 @@ function corrOf(series) {  // Pearson correlation matrix of equal-length arrays
   return c;
 }
 
+function ranks(x) {  // ranks 1..n, ties get their average rank (as pandas and scipy do)
+  const idx = x.map((v, i) => i).sort((a, b) => x[a] - x[b]), r = new Array(x.length);
+  for (let i = 0; i < idx.length;) {
+    let j = i; while (j + 1 < idx.length && x[idx[j + 1]] === x[idx[i]]) j++;
+    for (let k = i; k <= j; k++) r[idx[k]] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  return r;
+}
+
+// Weekly (Friday-ending, like pandas "W-FRI") compounded returns; a week is null for a name if
+// any of its days is missing.
+function toWeekly(cols, dates) {
+  const friday = (iso) => { const d = new Date(iso + "T00:00:00Z"), add = (5 - d.getUTCDay() + 7) % 7;
+    d.setUTCDate(d.getUTCDate() + add); return d.toISOString().slice(0, 10); };
+  const keys = dates.map(friday), weeks = [...new Set(keys)], out = {};
+  for (const [k, v] of Object.entries(cols)) {
+    const acc = new Map(weeks.map((w) => [w, 1]));
+    v.forEach((x, t) => { const w = keys[t]; if (acc.get(w) === null) return; acc.set(w, x === null ? null : acc.get(w) * (1 + x)); });
+    out[k] = weeks.map((w) => acc.get(w) === null ? null : acc.get(w) - 1);
+  }
+  return { cols: out, dates: weeks };
+}
+
 // Correlation of the names' returns on complete days; with `index`, of what is left after
-// taking out each name's beta × the index's return (beta from the same days).
-function corrMatrix(cols, names, index) {
+// taking out each name's beta × the index's return (beta from the same days);
+// `rank` correlates ranks instead of values (Spearman).
+function corrMatrix(cols, names, index, rank = false) {
   const rows = completeRows(cols, index ? names.concat([index]) : names);
   let series = names.map((k) => rows.map((t) => cols[k][t]));
   if (index) {
@@ -37,6 +62,7 @@ function corrMatrix(cols, names, index) {
       return x.map((v, t) => v - beta * m[t]);
     });
   }
+  if (rank) series = series.map(ranks);
   return { c: corrOf(series), days: rows.length };
 }
 
@@ -78,4 +104,4 @@ function rollingPair(cols, a, b, w, index) {
   return out;
 }
 
-if (typeof module !== "undefined") module.exports = { completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
+if (typeof module !== "undefined") module.exports = { ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };

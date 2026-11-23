@@ -68,3 +68,26 @@ def test_browser_rolling_pair_correlation():
     got = np.array([np.nan if v is None else v for v in js], dtype=float)
     mask = ~np.isnan(py.to_numpy())
     assert got[mask] == pytest.approx(py.to_numpy()[mask], abs=1e-10)
+
+
+def test_browser_rank_correlation_matches_spearman():
+    R = _data(seed=5)
+    names = [c for c in R.columns if c != "NIFTY"]
+    cols = {k: [None if np.isnan(x) else x for x in R[k]] for k in R}
+    js = _node(f"m.corrMatrix({json.dumps(cols)}, {json.dumps(names)}, null, true)")
+    py = R[names].dropna().corr(method="spearman").to_numpy()
+    assert np.array(js["c"]) == pytest.approx(py, abs=1e-12)
+
+
+def test_browser_weekly_returns_match_python():
+    from ch.measure import resampled_returns
+
+    R = _data(seed=6)
+    R.iloc[:, 1] = R.iloc[:, 1].fillna(0)
+    dates = list(R.index.strftime("%Y-%m-%d"))
+    cols = {k: list(R[k]) for k in R}
+    js = _node(f"m.toWeekly({json.dumps(cols)}, {json.dumps(dates)})")
+    py = resampled_returns(R, "W-FRI")
+    got = np.array(js["cols"]["A1"][1:])  # the first, part week has no starting price in Python
+    assert got == pytest.approx(py["A1"].to_numpy()[: len(got)], rel=1e-9)
+    assert js["dates"][1] == f"{py.index[0]:%Y-%m-%d}"

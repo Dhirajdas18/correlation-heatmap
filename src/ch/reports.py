@@ -126,4 +126,102 @@ def report_heatmap(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"heatmap": report_heatmap}
+MEASURE_START = "2014-01-01"
+
+
+def report_measure(out_dir: Path) -> dict:
+    """Pearson against rank correlation, daily against longer horizons, overnight against intraday,
+    for the NIFTY 50 stocks with prices through 2014-2026."""
+    from ch.data import DATA_PATH, SYMBOLS
+    from ch.measure import (
+        bootstrap_avg_corr,
+        kendall_to_pearson,
+        resampled_returns,
+        spearman_to_pearson,
+        split_day,
+        upper,
+    )
+
+    table = pd.read_parquet(DATA_PATH)
+    R = returns().loc[MEASURE_START:]
+    syms = [s for s in SYMBOLS if R[s].notna().mean() > 0.99]
+    W = R[syms].dropna()
+    pear, spear, kend = (float(upper(W.corr(method=m)).mean())
+                         for m in ("pearson", "spearman", "kendall"))
+    extreme = W.mean(axis=1).abs().sort_values(ascending=False).index[:10]
+    pear_ex = float(upper(W.drop(extreme).corr()).mean())
+    vals = {"Pearson": pear, "Pearson without the 10\nbiggest market days": pear_ex,
+            "Spearman (ranks),\non Pearson's scale": float(spearman_to_pearson(spear)),
+            "Kendall (ranks),\non Pearson's scale": float(kendall_to_pearson(kend))}
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs = np.arange(len(vals))
+    ax.bar(xs, list(vals.values()), 0.6, color=[plots.SERIES[0], plots.MUTED, plots.SERIES[2],
+                                                plots.SERIES[3]])
+    raw = [None, None, spear, kend]
+    for i, (v, r_) in enumerate(zip(vals.values(), raw, strict=True)):
+        ax.text(i, v + 0.004, f"{v:.3f}" + (f"\n(raw {r_:.3f})" if r_ is not None else ""),
+                ha="center", fontsize=8)
+    ax.set_xticks(xs, list(vals), fontsize=8)
+    ax.set_ylim(0, 0.33)
+    ax.set_ylabel("average correlation of daily returns")
+    ax.grid(axis="x", visible=False)
+    ax.set_title(f"Ten of {len(W):,} days lifted the average correlation from {pear_ex:.2f} to "
+                 f"{pear:.2f}")
+    plots.save(fig, out_dir, "meas_methods")
+
+    horizons = {"daily": W, "weekly": resampled_returns(W, "W-FRI"),
+                "monthly": resampled_returns(W, "ME"), "quarterly": resampled_returns(W, "QE")}
+    boot = {k: bootstrap_avg_corr(v, 500, seed=1) for k, v in horizons.items()}
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs = np.arange(len(boot))
+    pts = [b[0] for b in boot.values()]
+    err = np.array([[b[0] - b[1], b[2] - b[0]] for b in boot.values()]).T
+    ax.errorbar(xs, pts, yerr=err, fmt="o", ms=8, color=plots.SERIES[0], ecolor=plots.TEXT_2,
+                capsize=5, lw=1.2)
+    for i, (k, b) in enumerate(boot.items()):
+        ax.text(i + 0.08, b[0], f"{b[0]:.3f}\n({len(horizons[k])} returns)", fontsize=8,
+                va="center")
+    ax.set_xticks(xs, list(boot))
+    ax.set_xlim(-0.4, len(boot) - 0.3)
+    ax.set_ylabel("average correlation (90% range)")
+    ax.set_title(f"Longer horizons averaged higher ({pts[0]:.2f} daily, {pts[3]:.2f} quarterly), "
+                 "but the ranges overlap")
+    plots.save(fig, out_dir, "meas_horizon")
+
+    on, intra = split_day(table, syms)
+    on, intra = on.loc[MEASURE_START:], intra.loc[MEASURE_START:]
+    dropped = int(on.isna().sum().sum() - R[syms].isna().sum().sum())
+    years = sorted(set(on.index.year))
+    by_year = {lab: [float(upper(x[x.index.year == y].corr()).mean()) for y in years]
+               for lab, x in (("overnight", on), ("intraday", intra))}
+    var_share = float((on.var() / (on.var() + intra.var())).mean())
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for (lab, v), c in zip(by_year.items(), (plots.SERIES[1], plots.SERIES[0]), strict=True):
+        span = "previous close to open" if lab == "overnight" else "open to close"
+        ax.plot(years, v, "o-", color=c, lw=2, label=f"{lab}: {span}")
+    ax.set_ylim(0, 0.8)
+    ax.set_ylabel("average correlation between stocks")
+    ax.legend(loc="upper left", fontsize=8)
+    o_all, i_all = (float(upper(x.corr()).mean()) for x in (on, intra))
+    ax.set_title(f"Overnight gaps moved together twice as much as daytime moves: {o_all:.2f} "
+                 f"against {i_all:.2f}")
+    plots.save(fig, out_dir, "meas_overnight")
+
+    return {
+        "stocks, days": (len(syms), len(W), f"{W.index[0]:%d %b %Y} to {W.index[-1]:%d %b %Y}"),
+        "average correlation: Pearson, without 10 extreme days, Spearman, Kendall": (
+            round(pear, 3), round(pear_ex, 3), round(spear, 3), round(kend, 3)),
+        "on Pearson's scale: Spearman, Kendall": (round(float(spearman_to_pearson(spear)), 3),
+                                                  round(float(kendall_to_pearson(kend)), 3)),
+        "10 biggest market days": [f"{d:%d %b %Y}" for d in sorted(extreme)],
+        "by horizon (avg, 5%, 95%, n)": {k: (*(round(x, 3) for x in b), len(horizons[k]))
+                                         for k, b in boot.items()},
+        "overnight / intraday average correlation": (round(o_all, 3), round(i_all, 3)),
+        "overnight share of variance (average stock)": round(var_share, 3),
+        "stock-days dropped for bad opens": dropped,
+        "by year (overnight, intraday)": {y: (round(a, 2), round(b, 2)) for y, a, b in
+                                          zip(years, *by_year.values(), strict=True)},
+    }
+
+
+REPORTS = {"heatmap": report_heatmap, "measure": report_measure}

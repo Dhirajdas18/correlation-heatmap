@@ -5,6 +5,12 @@
   <label>Moves <select id="hm-mkt">
     <option value="raw">all of each stock’s move</option><option value="resid" selected>market removed</option>
   </select></label>
+  <label>Returns <select id="hm-freq">
+    <option value="daily" selected>daily</option><option value="weekly">weekly</option>
+  </select></label>
+  <label>Method <select id="hm-meth">
+    <option value="pearson" selected>Pearson (values)</option><option value="rank">Spearman (ranks)</option>
+  </select></label>
   <label>Order <select id="hm-ord">
     <option value="cluster" selected>by cluster</option><option value="sector">by NSE sector</option>
   </select></label>
@@ -27,8 +33,10 @@ const HM = $data;
   const fmt = (x) => x.toFixed(2).replace("-", "−");
   const update = () => {
     const w = parseInt(el("hm-win").value, 10), resid = el("hm-mkt").value === "resid";
-    const data = slice(w), names = HM.symbols.filter((s) => data[s].filter((x) => x !== null).length > 0.8 * w);
-    const { c, days } = corrMatrix(data, names, resid ? "NIFTY" : null);
+    const weekly = el("hm-freq").value === "weekly";
+    const data = weekly ? toWeekly(slice(w), HM.dates.slice(-w)).cols : slice(w), len = data.NIFTY.length;
+    const names = HM.symbols.filter((s) => data[s].filter((x) => x !== null).length > 0.8 * len);
+    const { c, days } = corrMatrix(data, names, resid ? "NIFTY" : null, el("hm-meth").value === "rank");
     let order = names.map((_, i) => i);
     if (el("hm-ord").value === "cluster") order = clusterOrder(c, 12).order;
     else order.sort((a, b) => (HM.sectors[names[a]] + names[a]).localeCompare(HM.sectors[names[b]] + names[b]));
@@ -38,7 +46,7 @@ const HM = $data;
     let s = 0, n = 0;
     for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) { s += c[i][j]; n++; }
     const left = HM.symbols.length - names.length;
-    el("hm-note").textContent = `${names.length} stocks over ${days} trading days to ${HM.last}; average correlation ${fmt(s / n)}` +
+    el("hm-note").textContent = `${names.length} stocks over ${days} ${weekly ? "weeks" : "trading days"} to ${HM.last}; average ${el("hm-meth").value === "rank" ? "rank " : ""}correlation ${fmt(s / n)}` +
       (resid ? " after taking out each stock’s beta × NIFTY." : ".") + (left ? ` ${left} stock${left > 1 ? "s" : ""} with too little history left out.` : "");
     Plotly.react("hm-chart", [{ type: "heatmap", z, x: labs, y: labs, text, hoverinfo: "text", zmin: -0.8, zmax: 0.8,
       colorscale: [[0, "#2166ac"], [0.5, css("--surface")], [1, "#b2182b"]], xgap: 0.5, ygap: 0.5,
