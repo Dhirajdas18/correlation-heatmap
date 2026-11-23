@@ -520,5 +520,109 @@ def report_time(out_dir: Path) -> dict:
     }
 
 
+def report_network(out_dir: Path) -> dict:
+    """The minimum spanning tree of the NIFTY 50: its shape now, how tight it was each year, how
+    many links survived from year to year, and which stocks were hubs."""
+    from matplotlib.collections import LineCollection
+
+    from ch.data import SECTORS, SYMBOLS
+    from ch.network import degree, edge_overlap, mst_edges, radial_layout, tree_corr
+
+    R = returns()
+    W = last_years(R, 3)[SYMBOLS].dropna()
+    c = W.corr()
+    names = list(c.index)
+    e = mst_edges(c)
+    deg = degree(e, len(names))
+    root = int(np.argmax(deg))
+    xy = radial_layout(e, len(names), root)
+    order = list(pd.Series([SECTORS[s] for s in names]).value_counts().index)
+    colour = {sec: plots.SERIES[i] if i < 7 else plots.MUTED for i, sec in enumerate(order)}
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    ax.add_collection(LineCollection([[xy[i], xy[j]] for i, j, _ in e], colors=plots.GRID,
+                                     linewidths=1.5))
+    for sec in order:
+        idx = [i for i, s in enumerate(names) if SECTORS[s] == sec]
+        ax.scatter(xy[idx, 0], xy[idx, 1], s=[25 + 25 * deg[i] for i in idx], color=colour[sec],
+                   zorder=3, label=SHORT[sec] if colour[sec] != plots.MUTED else None)
+    ax.scatter([], [], color=plots.MUTED, label="other sectors")
+    for i, s in enumerate(names):
+        ax.annotate(s, xy[i], xytext=(0, 6), textcoords="offset points", ha="center", fontsize=6,
+                    color=plots.TEXT_2)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), fontsize=7, frameon=False)
+    fig.subplots_adjust(right=0.84)
+    hubs = pd.Series(deg, index=names).sort_values(ascending=False)
+    ax.set_title(f"The market's skeleton, last 3 years: {len(e)} links averaging "
+                 f"{tree_corr(e, c):.2f} correlation\n{(deg == 1).sum()} of {len(names)} stocks "
+                 f"are leaves; biggest hub {names[root]} ({deg[root]} links)")
+    plots.save(fig, out_dir, "net_tree")
+
+    syms = [s for s in SYMBOLS if R.loc[MEASURE_START:, s].notna().mean() > 0.99]
+    years = {}
+    for y in range(2010, R.index[-1].year + 1):
+        w = R.loc[str(y), syms].dropna()
+        if len(w) >= 150:
+            cc = w.corr()
+            years[y] = (mst_edges(cc), cc)
+    ys = sorted(years)
+    tc = [tree_corr(*years[y]) for y in ys]
+    allc = [float(np.mean(years[y][1].to_numpy()[np.triu_indices(len(syms), 1)])) for y in ys]
+    surv = [edge_overlap(years[y][0], years[y - 1][0]) if y - 1 in years else np.nan for y in ys]
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 5.4), sharex=True,
+                                 gridspec_kw={"height_ratios": [3, 2]})
+    a1.plot(ys, tc, "o-", color=plots.SERIES[0], lw=2, label="links in the tree")
+    a1.plot(ys, allc, "o-", color=plots.MUTED, lw=2, label="all pairs")
+    a1.set_ylabel("average correlation")
+    a1.legend(loc="upper left", fontsize=8)
+    a2.bar(ys, [v * 100 for v in surv], color=plots.SERIES[2])
+    a2.set_ylabel("links kept from\nthe year before, %")
+    a2.set_ylim(0, 100)
+    a2.grid(axis="x", visible=False)
+    s_ = [v for v in surv if np.isfinite(v)]
+    a1.set_title(f"The tree was tightest in {ys[int(np.argmax(tc))]} ({max(tc):.2f} a link); "
+                 f"{min(s_):.0%}–{max(s_):.0%} of links survived each year")
+    plots.save(fig, out_dir, "net_years")
+
+    degs = pd.DataFrame({y: degree(years[y][0], len(syms)) for y in ys}, index=syms)
+    top = degs.idxmax()
+    changes = int((top != top.shift()).iloc[1:].sum())
+    keep = sorted(set(top) | set(degs.index[degs.max(axis=1) >= 6]),
+                  key=lambda s: -degs.loc[s].max())
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    grid = degs.loc[keep].to_numpy()
+    ax.imshow(grid, cmap=plt.matplotlib.colors.ListedColormap(plots.BLUE_RAMP), aspect="auto",
+              vmin=1, vmax=max(8, grid.max()))
+    for i in range(grid.shape[0]):
+        for j in range(grid.shape[1]):
+            ax.text(j, i, grid[i, j], ha="center", va="center", fontsize=7,
+                    color="white" if grid[i, j] >= 6 else plots.TEXT)
+    ax.set_xticks(range(len(ys)), ys, fontsize=7)
+    ax.set_yticks(range(len(keep)), keep, fontsize=7)
+    ax.grid(False)
+    most = top.value_counts()
+    ax.set_title(f"Links per stock in each year's tree: the top hub changed in {changes} of "
+                 f"{len(ys) - 1} years; {most.index[0]} led {most.iloc[0]} times")
+    plots.save(fig, out_dir, "net_hubs")
+
+    return {
+        "3y window": f"{W.index[0]:%d %b %Y} to {W.index[-1]:%d %b %Y}, {len(W)} days",
+        "3y tree: links, average link correlation, all-pairs average": (
+            len(e), round(tree_corr(e, c), 3), round(float(np.mean(c.to_numpy()[np.triu_indices(
+                len(names), 1)])), 3)),
+        "3y hubs": hubs.head(6).to_dict(),
+        "3y leaves": int((deg == 1).sum()),
+        "yearly (tree corr, all corr, survival, top hub, its links)": {
+            y: (round(t_, 3), round(a_, 3), None if not np.isfinite(sv) else round(sv, 2),
+                top[y], int(degs[y].max()))
+            for y, t_, a_, sv in zip(ys, tc, allc, surv, strict=True)},
+        "stocks in yearly trees": len(syms),
+        "hub changes": changes,
+        "top-hub counts": top.value_counts().to_dict(),
+    }
+
+
 REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt,
-           "time": report_time}
+           "time": report_time, "network": report_network}

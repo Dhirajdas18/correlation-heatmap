@@ -18,7 +18,10 @@
 <p class="note" id="hm-note" aria-live="polite"></p>
 <div id="hm-chart" class="sim-chart heat" role="img" aria-label="Correlation heatmap of the NIFTY 50 stocks"></div>
 <h3 id="hm-pair-title">Click a square to see that pair over time</h3>
-<div id="hm-pair" class="sim-chart" role="img" aria-label="Correlation of the chosen pair over the past 63 trading days, through time"></div>
+<div id="hm-pair" class="sim-chart" role="img" aria-label="Correlation of the chosen pair through time"></div>
+<h3>The market’s skeleton: minimum spanning tree</h3>
+<p class="note" id="hm-tree-note"></p>
+<div id="hm-tree" class="sim-chart tree" role="img" aria-label="Minimum spanning tree of the stocks for the chosen settings"></div>
 <script>
 $js
 const HM = $data;
@@ -55,8 +58,29 @@ const HM = $data;
       colorbar: { thickness: 10, title: { text: "correlation", side: "right" } } }],
       Object.assign(base(), { margin: { l: 90, r: 10, t: 10, b: 90 }, xaxis: { tickfont: { size: 8 }, tickangle: -90 },
         yaxis: { tickfont: { size: 8 }, autorange: "reversed" } }), { displaylogo: false, responsive: true });
+    drawTree(c, names);
     el("hm-chart").on("plotly_click", (ev) => { const p = ev.points[0]; if (p.x !== p.y) { pair = [p.y, p.x]; drawPair(); } });
     drawPair();
+  };
+  const drawTree = (c, names) => {
+    const edges = mstEdges(c), deg = new Array(names.length).fill(0);
+    edges.forEach(([i, j]) => { deg[i]++; deg[j]++; });
+    const root = deg.indexOf(Math.max(...deg)), xy = radialLayout(edges, names.length, root);
+    const ex = [], ey = [];
+    edges.forEach(([i, j]) => { ex.push(xy[i][0], xy[j][0], null); ey.push(xy[i][1], xy[j][1], null); });
+    const avg = edges.reduce((a, [i, j]) => a + c[i][j], 0) / edges.length;
+    const hubs = names.map((s, i) => [s, deg[i]]).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s, d]) => `${s} (${d})`).join(", ");
+    el("hm-tree-note").textContent = `The ${edges.length} links that join all ${names.length} stocks with the highest correlations, no loops; average link correlation ${fmt(avg)}. Biggest hubs: ${hubs}. Colour = NSE sector.`;
+    const group = (s) => HM.colours[HM.sectors[s]] === HM.other ? "other sectors" : HM.short[HM.sectors[s]];
+    const colourOf = (g) => g === "other sectors" ? HM.other : HM.colours[Object.keys(HM.short).find((k) => HM.short[k] === g)];
+    const secs = [...new Set(names.map(group))].sort((a, b) => (a === "other sectors") - (b === "other sectors"));
+    Plotly.react("hm-tree", [{ x: ex, y: ey, mode: "lines", line: { color: css("--grid"), width: 1.5 }, hoverinfo: "skip", showlegend: false }]
+      .concat(secs.map((sec) => { const idx = names.map((s, i) => i).filter((i) => group(names[i]) === sec);
+        return { x: idx.map((i) => xy[i][0]), y: idx.map((i) => xy[i][1]), mode: "markers+text", text: idx.map((i) => names[i]),
+          textposition: "top center", textfont: { size: 8, color: css("--text-2") }, marker: { size: idx.map((i) => 6 + 2 * deg[i]), color: colourOf(sec) },
+          name: sec, hovertemplate: idx.map((i) => `${names[i]}: ${deg[i]} link${deg[i] > 1 ? "s" : ""}<extra>${HM.short[HM.sectors[names[i]]]}</extra>`) }; })),
+      Object.assign(base(), { margin: { l: 8, r: 8, t: 8, b: 8 }, showlegend: true, legend: { font: { size: 9 } },
+        xaxis: { visible: false, scaleanchor: "y" }, yaxis: { visible: false } }), { displaylogo: false, responsive: true });
   };
   const drawPair = () => {
     if (!pair) return;

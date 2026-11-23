@@ -35,7 +35,11 @@ def heatmap_data(r: pd.DataFrame) -> dict:
     recent = r[symbols + ["NIFTY"]].iloc[-DAYS:]
     data = {s: [None if pd.isna(x) else int(round(x / SCALE)) for x in recent[s]]
             for s in symbols + ["NIFTY"]}
+    order = list(pd.Series([SECTORS[s] for s in symbols]).value_counts().index)
+    # seven biggest sectors get the categorical colours; the rest share grey (dataviz: ≤ 8)
+    colours = {sec: plots.SERIES[i] if i < 7 else plots.MUTED for i, sec in enumerate(order)}
     return {"symbols": symbols, "sectors": {s: SECTORS[s] for s in symbols}, "short": SHORT,
+            "colours": colours, "other": plots.MUTED,
             "dates": list(recent.index.strftime("%Y-%m-%d")),
             "last": f"{recent.index[-1]:%d %b %Y}", "r": data}
 

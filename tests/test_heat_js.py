@@ -120,3 +120,17 @@ def test_browser_ewma_pair_correlation():
         sxy = 0.94 * sxy + 0.06 * x[t] * y[t]
     assert js[first + 59] is None
     assert [js[t] for t in exp] == pytest.approx(list(exp.values()), rel=1e-9)
+
+
+def test_browser_mst_matches_scipy():
+    from ch.network import mst_edges, radial_layout
+
+    rng = np.random.default_rng(9)
+    x = rng.normal(size=(300, 15)) + rng.normal(size=(300, 1))
+    c = pd.DataFrame(x).corr()
+    js = _node(f"m.mstEdges({json.dumps(c.to_numpy().tolist())})")
+    py = mst_edges(c)
+    assert sorted(tuple(sorted(e[:2])) for e in js) == [(a, b) for a, b, _ in py]
+    root = int(np.argmax(np.bincount(np.array([e[:2] for e in py]).ravel(), minlength=15)))
+    xy = _node(f"m.radialLayout({json.dumps([[a, b, w] for a, b, w in py])}, 15, {root})")
+    assert np.array(xy) == pytest.approx(radial_layout(py, 15, root), abs=1e-12)

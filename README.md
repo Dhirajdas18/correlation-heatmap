@@ -10,7 +10,7 @@ gold and the rupee, measured on NSE data.
 **Live heatmap: [dhirajdas18.github.io/correlation-heatmap](https://dhirajdas18.github.io/correlation-heatmap/)**.
 Pick a window, daily or weekly returns, Pearson or rank correlation, keep or remove the market, order by
 cluster or by NSE sector, and click any square to see that
-pair's correlation through time. It runs in your browser on five years of daily returns, rebuilt weekly.
+pair's correlation through time; below it, the minimum spanning tree for the same settings. It runs in your browser on five years of daily returns, rebuilt weekly.
 
 ## Features
 
@@ -18,7 +18,7 @@ pair's correlation through time. It runs in your browser on five years of daily 
 - [x] Measurement: Pearson against rank correlation; daily to quarterly returns; overnight against intraday; rank and weekly options in the heatmap
 - [x] Noise against signal: random matrix theory, the market factor's share over time, cleaning the matrix; factor count in the heatmap
 - [x] Correlation through time: rolling, EWMA, DCC and their forecasts; falling together against rising together; EWMA line in the heatmap
-- [ ] Networks: minimum spanning tree, hubs, 2020
+- [x] Networks: minimum spanning tree, hubs, yearly trees and link survival; live tree on the dashboard
 - [ ] Diversification: effective number of bets; hierarchical risk parity walk-forward
 - [ ] Across assets and time zones: US market, gold, the rupee; lead and lag
 
@@ -153,12 +153,39 @@ average of all past days.
   long IT (TCS, INFY, HCLTECH, TECHM) against short private banks (HDFCBANK, ICICIBANK, AXISBANK,
   KOTAKBANK). EWMA and the rolling windows were within t ±0.8 of the all-past forecast.
 
+### 5. The market's skeleton: 49 links averaging 0.50 correlation; the tree was tightest in 2020, and only 24–48% of its links survived from one year to the next
+
+<a href="docs/img/net_tree.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/net_tree.png"><img src="docs/img/net_tree.gif" alt="Minimum spanning tree of today's NIFTY 50 stocks over the last three years, nodes coloured by sector and sized by links" width="720"></picture></a>
+
+The minimum spanning tree keeps the N − 1 links, with distance √(2(1 − correlation)), that connect all N
+stocks at the smallest total distance: each stock joins the tree through the stock it moves most with,
+and there are no loops (Mantegna 1999). A stock with many links is a hub.
+
+- **Last 3 years (above):** the 49 links averaged 0.50 correlation, against 0.27 for all pairs. 23 of the
+  50 stocks were leaves (one link). The biggest hub was Tata Steel (5 links), then UltraTech Cement,
+  Shriram Finance, NTPC and L&T (4 each). The private banks, Bajaj Finance and Finserv, Shriram and the two
+  insurers hung off one branch (SBI, Jio Financial and BSE sat elsewhere); IT, pharma with the hospitals,
+  four of the five autos, and FMCG each formed their own.
+
+<table><tr>
+<td><a href="docs/img/net_years.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/net_years.png"><img src="docs/img/net_years.gif" alt="Average correlation of tree links and of all pairs by year, and the share of links kept from the year before"></picture></a></td>
+<td><a href="docs/img/net_hubs.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/net_hubs.png"><img src="docs/img/net_hubs.gif" alt="Links per stock in each year's tree for the stocks that were ever the top hub or had six or more links"></picture></a></td>
+</tr></table>
+
+One tree per calendar year, 2011 to 2026 (2026 to November), for the 43 stocks with prices every day.
+
+- **Tightness (left):** the average tree link ranged from 0.36 (2017) to 0.64 (2020), moving with the
+  all-pairs average (0.15 to 0.43).
+- **Turnover (left):** 24% (2015) to 48% (2022) of a year's links were also in the next year's tree.
+- **Hubs (right):** the stock with the most links was different from the year before in all 15 years
+  (ties broken by name order, in 2021 and 2026). ICICI Bank led 5 times, with 13 links in 2011; L&T twice.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # also: measure, rmt, time; charts -> out/
+uv run ch report heatmap                    # also: measure, rmt, time, network
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -173,6 +200,8 @@ uv run pytest
   the market factor's share.
 - `src/ch/timevar.py`: EWMA standardisation, EWMA and DCC correlation forecasts (DCC fitted by composite
   likelihood over pairs), exceedance correlation and the QLIKE loss.
+- `src/ch/network.py`: minimum spanning tree, degrees, average link correlation, link overlap between
+  trees and a radial layout.
 - `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
   removal, clustering and eigenvalues (Jacobi) in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).

@@ -120,6 +120,42 @@ function ewmaPair(cols, a, b, lam, seed = 60) {
   return out;
 }
 
+// Minimum spanning tree on d = √(2(1 − ρ)) (Prim's algorithm): [i, j, d] links, i < j.
+function mstEdges(c) {
+  const n = c.length, d = (i, j) => Math.sqrt(Math.max(0, 2 * (1 - c[i][j])));
+  const inTree = new Array(n).fill(false), best = new Array(n).fill(Infinity), from = new Array(n).fill(-1), out = [];
+  best[0] = 0;
+  for (let k = 0; k < n; k++) {
+    let u = -1;
+    for (let v = 0; v < n; v++) if (!inTree[v] && (u < 0 || best[v] < best[u])) u = v;
+    inTree[u] = true;
+    if (from[u] >= 0) out.push([Math.min(u, from[u]), Math.max(u, from[u]), best[u]]);
+    for (let v = 0; v < n; v++) if (!inTree[v] && d(u, v) < best[v]) { best[v] = d(u, v); from[v] = u; }
+  }
+  return out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+}
+
+// Root at the centre, one ring per step out, each subtree an angle in proportion to its leaves
+// (mirrors ch/network.py radial_layout).
+function radialLayout(edges, n, root) {
+  const nb = Array.from({ length: n }, () => []);
+  edges.forEach(([i, j]) => { nb[i].push(j); nb[j].push(i); });
+  nb.forEach((l) => l.sort((a, b) => a - b));
+  const parent = new Map([[root, null]]), depth = new Map([[root, 0]]), order = [], q = [root];
+  while (q.length) { const u = q.shift(); order.push(u); for (const v of nb[u]) if (!parent.has(v)) { parent.set(v, u); depth.set(v, depth.get(u) + 1); q.push(v); } }
+  const kids = new Map(order.map((u) => [u, nb[u].filter((v) => parent.get(v) === u)]));
+  const leaves = new Map();
+  for (const u of [...order].reverse()) leaves.set(u, Math.max(1, kids.get(u).reduce((a, v) => a + leaves.get(v), 0)));
+  const xy = Array.from({ length: n }, () => [0, 0]), span = new Map([[root, [0, 2 * Math.PI]]]);
+  for (const u of order) {
+    const [lo, hi] = span.get(u), mid = (lo + hi) / 2, r = depth.get(u);
+    xy[u] = [r * Math.cos(mid), r * Math.sin(mid)];
+    let start = lo;
+    for (const v of kids.get(u)) { const w = (hi - lo) * leaves.get(v) / leaves.get(u); span.set(v, [start, start + w]); start += w; }
+  }
+  return xy;
+}
+
 // Eigenvalues of a symmetric matrix, largest first (cyclic Jacobi rotations).
 function eigenvalues(c) {
   const n = c.length, a = c.map((r) => r.slice());
@@ -148,4 +184,4 @@ function eigenvalues(c) {
 // Marchenko-Pastur noise band for n series of t observations.
 function mpBounds(n, t) { const q = n / t; return [(1 - Math.sqrt(q)) ** 2, (1 + Math.sqrt(q)) ** 2]; }
 
-if (typeof module !== "undefined") module.exports = { ewmaPair, eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
+if (typeof module !== "undefined") module.exports = { mstEdges, radialLayout, ewmaPair, eigenvalues, mpBounds, ranks, toWeekly, completeRows, corrOf, corrMatrix, clusterOrder, rollingPair };
