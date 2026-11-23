@@ -730,5 +730,111 @@ def report_diversify(out_dir: Path) -> dict:
     }
 
 
+LEAD_START = "2011-01-01"  # Yahoo's NIFTY opens before 2011 sit almost on the previous close
+
+
+def report_cross(out_dir: Path) -> dict:
+    """NIFTY against the US market, gold and the rupee (weekly), and how the US session shows up in
+    NIFTY's next opening gap."""
+    from ch.crossasset import regress, rolling_corr, us_during_gap, weekly_returns
+    from ch.data import DATA_PATH, FIXES, GLOBAL_PATH, daily_returns
+
+    table = pd.read_parquet(DATA_PATH)
+    glob = pd.read_parquet(GLOBAL_PATH).copy()
+    fixes = pd.read_csv(FIXES, parse_dates=["date"])
+    for row in fixes[fixes["action"] == "blank"].itertuples():
+        if row.symbol in glob.columns and row.date in glob.index:
+            glob.loc[row.date, row.symbol] = np.nan
+    px = table["adj_close"][["NIFTYBEES", "GOLDBEES"]]
+    nse = (1 + daily_returns(px).fillna(0)).cumprod().where(px.notna())
+    usd_inr = glob["USDINR"].ffill()
+    W = weekly_returns({"NIFTY": nse["NIFTYBEES"], "gold": nse["GOLDBEES"],
+                        "US (₹)": (glob["SP500TR"] * usd_inr).dropna(),
+                        "US ($)": glob["SP500TR"], "USD/INR": glob["USDINR"]}).loc[START_ROLL:]
+    full = W.corr()["NIFTY"].drop("NIFTY")
+    roll = {k: rolling_corr(W["NIFTY"], W[k], 52) for k in ("US ($)", "gold", "USD/INR")}
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for (k, v), c in zip(roll.items(), (plots.SERIES[0], plots.SERIES[3], plots.SERIES[1]),
+                         strict=True):
+        ax.plot(v.index, v.values, color=c, lw=1.8, label=f"NIFTY with {k}: {full[k]:+.2f} overall")
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_ylabel("correlation of weekly returns, past year")
+    ax.set_ylim(-0.8, 1.15)
+    ax.legend(loc="upper center", fontsize=8, ncol=3)
+    us = roll["US ($)"].dropna()
+    ax.set_title(f"NIFTY's weekly link to the US peaked at {us.max():.2f} ({us.idxmax():%b %Y})"
+                 f" and fell to {abs(us.iloc[-1]):.2f}; to the dollar it stayed negative")
+    plots.save(fig, out_dir, "cross_rolling")
+
+    o, c_ = table[("open", "NIFTY")], table[("close", "NIFTY")]
+    d = pd.DataFrame({"o": o, "c": c_}).dropna().loc[LEAD_START:]
+    gap, intra, cc = d["o"] / d["c"].shift() - 1, d["c"] / d["o"] - 1, d["c"].pct_change()
+    us_ret = glob["SP500TR"].dropna().pct_change()
+    ug = us_during_gap(d.index, us_ret)
+    X = pd.DataFrame({"gap": gap, "intra": intra, "cc": cc, "us": ug,
+                      "next": cc.shift(-1)}).dropna()
+    parts = {"opening gap": "gap", "open to close": "intra", "whole day": "cc",
+             "next day": "next"}
+    reg = {k: regress(X[v], X["us"]) for k, v in parts.items()}
+    halves = {}
+    mid = X.index[len(X) // 2]
+    for lab, part in (("first half", X.loc[:mid]), ("second half", X.loc[mid:])):
+        halves[lab] = {k: regress(part[v], part["us"]) for k, v in parts.items()}
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    names = list(parts)
+    xs = np.arange(len(names))
+    vals = [reg[k][2] for k in names]
+    ax.bar(xs, vals, 0.55, color=[plots.SERIES[0] if v > 0 else plots.SERIES[1] for v in vals])
+    for i, k in enumerate(names):
+        b, t_, r_ = reg[k]
+        ax.text(i, max(r_, 0) + 0.02, f"{r_:+.2f}\nslope {b:+.2f}, t {t_:.1f}".replace("-", "−"),
+                ha="center", fontsize=8)
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_xticks(xs, [f"NIFTY {n}" for n in names])
+    ax.set_ylim(-0.15, 0.7)
+    ax.set_ylabel("correlation with the US moves\nduring NIFTY's overnight gap")
+    ax.grid(axis="x", visible=False)
+    ax.set_title(f"US moves while India slept showed up in NIFTY's opening gap "
+                 f"({reg['opening gap'][2]:.2f}), not after the open")
+    plots.save(fig, out_dir, "cross_leadlag")
+
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    ax.plot(X["us"] * 100, X["gap"] * 100, "o", ms=2, color=plots.MUTED, alpha=0.6)
+    xs_ = np.linspace(X["us"].min(), X["us"].max(), 50)
+    b = reg["opening gap"][0]
+    ax.plot(xs_ * 100, (X["gap"].mean() + b * (xs_ - X["us"].mean())) * 100,
+            color=plots.SERIES[0], lw=2, label=f"slope {b:.2f}")
+    ax.axhline(0, color=plots.TEXT_2, lw=0.6)
+    ax.axvline(0, color=plots.TEXT_2, lw=0.6)
+    ax.set_xlim(-8, 8)
+    ax.set_ylim(-8, 6)
+    ax.set_xlabel("S&P 500 move during NIFTY's overnight gap, % (in dollars)")
+    ax.set_ylabel("NIFTY's opening gap, %")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title(f"Each 1% the US moved overnight, NIFTY opened {b * 100:.0f} basis points "
+                 "the same way")
+    plots.save(fig, out_dir, "cross_gap")
+
+    return {
+        "weekly 2009-26": (len(W), f"{W.index[0]:%d %b %Y} to {W.index[-1]:%d %b %Y}"),
+        "NIFTY weekly correlation, full period": full.round(3).to_dict(),
+        "rolling 1y NIFTY-US($) min (date), max (date)": (
+            round(us.min(), 2), f"{us.idxmin():%b %Y}", round(us.max(), 2), f"{us.idxmax():%b %Y}"),
+        "rolling 1y NIFTY-gold min, max": (round(roll["gold"].min(), 2),
+                                           round(roll["gold"].max(), 2)),
+        "rolling 1y NIFTY-USD/INR min, max": (round(roll["USD/INR"].min(), 2),
+                                              round(roll["USD/INR"].max(), 2)),
+        "lead-lag days, from": (len(X), f"{X.index[0]:%d %b %Y}"),
+        "US overnight vs NIFTY (slope, t, corr)": {k: tuple(round(v, 3) for v in r_)
+                                                    for k, r_ in reg.items()},
+        "halves (split at)": (f"{mid:%d %b %Y}", {h: {k: tuple(round(v, 3) for v in r_)
+                                                      for k, r_ in d_.items()}
+                                                  for h, d_ in halves.items()}),
+    }
+
+
 REPORTS = {"heatmap": report_heatmap, "measure": report_measure, "rmt": report_rmt,
-           "time": report_time, "network": report_network, "diversify": report_diversify}
+           "time": report_time, "network": report_network, "diversify": report_diversify,
+           "cross": report_cross}

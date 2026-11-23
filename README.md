@@ -20,7 +20,7 @@ pair's correlation through time; below it, the minimum spanning tree for the sam
 - [x] Correlation through time: rolling, EWMA, DCC and their forecasts; falling together against rising together; EWMA line in the heatmap
 - [x] Networks: minimum spanning tree, hubs, yearly trees and link survival; live tree on the dashboard
 - [x] Diversification: effective number of bets; hierarchical risk parity walk-forward after costs; bets count in the heatmap
-- [ ] Across assets and time zones: US market, gold, the rupee; lead and lag
+- [x] Across assets and time zones: US market, gold, the rupee; the US session in NIFTY's opening gap; live cross-asset chart
 
 ## Findings
 
@@ -218,12 +218,48 @@ duty, exchange charges, ₹15.93 DP charge per stock sold, 0.05% slippage).
 - These are today's NIFTY members, so every method's growth is inflated by survivorship; ef/04 runs
   weighting methods on a point-in-time universe.
 
+### 7. The US session showed up in NIFTY's opening gap (correlation 0.52), not after the open; weekly, NIFTY moved with the US (0.48) and against the dollar (−0.40), and was unrelated to gold
+
+<a href="docs/img/cross_leadlag.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/cross_leadlag.png"><img src="docs/img/cross_leadlag.gif" alt="Correlation of the US market's move during NIFTY's overnight gap with NIFTY's opening gap, open-to-close move, whole day and next day" width="720"></picture></a>
+
+NSE closes at 15:30 IST; the US cash session runs from about 19:00 to 01:30 IST, so every US session dated
+on or after NSE's previous trading day falls inside NIFTY's overnight gap. For each NSE day since January
+2011 (3,896 days; Yahoo's NIFTY opens before 2011 sit almost on the previous close), the S&P 500 total
+return over those sessions is set against NIFTY's opening gap, its open-to-close move, its whole day and the
+next day.
+
+| NIFTY move | Correlation with the US move overnight | Slope | t |
+|---|---|---|---|
+| opening gap | **0.52** | 0.30 | 38.0 |
+| open to close | −0.04 | −0.03 | −2.7 |
+| whole day | 0.28 | 0.27 | 18.1 |
+| next day | 0.04 | 0.04 | 2.3 |
+
+- **Priced at the open:** each 1% the US moved overnight, NIFTY opened 0.30% the same way. After the
+  open, NIFTY gave back a little (slope −0.03), with the same sign in 2011–2018 (t −1.8) and 2019–2026
+  (t −2.0). The next-day link held in the first half (t 2.8) but not the second (t 0.8).
+
+<table><tr>
+<td><a href="docs/img/cross_gap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/cross_gap.png"><img src="docs/img/cross_gap.gif" alt="NIFTY's opening gap against the S&P 500's move during the gap, with the fitted slope"></picture></a></td>
+<td><a href="docs/img/cross_rolling.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/cross_rolling.png"><img src="docs/img/cross_rolling.gif" alt="Past-year correlation of NIFTY's weekly returns with the US market, gold and USD/INR, 2010 to 2026"></picture></a></td>
+</tr></table>
+
+Weekly (Friday-to-Friday, each market at its own last close), January 2009 to November 2026, 934 weeks:
+NIFTY ETF against the S&P 500 total return (in dollars and in rupees), the gold ETF and USD/INR.
+
+- **Overall:** NIFTY correlated 0.48 with the US market in dollars (0.33 in rupees), −0.40 with the dollar's
+  price in rupees and −0.06 with gold.
+- **Over time (right):** the past year's link to the US peaked at 0.81 (March 2020) and was 0.38 at the
+  end of October 2026; the week to 6 November (NIFTY +8.1%, US −2.7%) took it to 0.17, and two more
+  opposite weeks to 0.00. Against the dollar it stayed between −0.68 and −0.11; against gold it swung
+  between −0.48 and 0.33.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet, data/global.parquet
-uv run ch report heatmap                    # also: measure, rmt, time, network, diversify
+uv run ch report heatmap                    # also: measure, rmt, time, network, diversify, cross
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -243,6 +279,8 @@ uv run pytest
 - `src/ch/diversify.py`: participation ratio, diversification ratio, inverse volatility, long-only
   minimum variance, hierarchical risk parity along the tree, Zerodha delivery costs and a monthly
   walk-forward.
+- `src/ch/crossasset.py`: the US sessions inside NIFTY's overnight gap, weekly returns on each market's
+  own calendar, regression and rolling correlation.
 - `src/ch/heat.js`, `heatmap.html`: the same correlation (values or ranks, daily or weekly), market
   removal, clustering and eigenvalues (Jacobi) in the browser; a
   test runs them through Node against Python. Five years of returns are embedded as integers (0.001% units).

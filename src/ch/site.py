@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 from string import Template
 
+import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
 from ch import plots
 
@@ -49,6 +51,46 @@ def heatmap_section(data: pd.DataFrame) -> str:
             .replace("$data", json.dumps(heatmap_data(data), separators=(",", ":"))))
 
 
+
+def load_global() -> pd.DataFrame:
+    """The US index and USD/INR table, with the fixes file's blank rows dropped."""
+    from ch.data import FIXES, GLOBAL_PATH
+
+    glob = pd.read_parquet(GLOBAL_PATH).copy()
+    fixes = pd.read_csv(FIXES, parse_dates=["date"])
+    for row in fixes[fixes["action"] == "blank"].itertuples():
+        if row.symbol in glob.columns and row.date in glob.index:
+            glob.loc[row.date, row.symbol] = np.nan
+    return glob
+
+
+def cross_figure(data: pd.DataFrame) -> go.Figure:
+    """Past-year correlation of NIFTY's weekly returns with the US market, gold and USD/INR."""
+    from ch.crossasset import rolling_corr, weekly_returns
+
+    glob = load_global()
+    nifty = (1 + data["NIFTYBEES"].dropna()).cumprod()
+    gold = (1 + data["GOLDBEES"].dropna()).cumprod()
+    W = weekly_returns({"NIFTY": nifty, "US market ($)": glob["SP500TR"], "gold (₹)": gold,
+                        "USD/INR": glob["USDINR"]})
+    fig = go.Figure()
+    for k, c in (("US market ($)", plots.SERIES[0]), ("gold (₹)", plots.SERIES[3]),
+                 ("USD/INR", plots.SERIES[1])):
+        rc = rolling_corr(W["NIFTY"], W[k], 52).dropna()
+        fig.add_scatter(x=list(rc.index.strftime("%Y-%m-%d")), y=rc.round(3).tolist(),
+                        name=f"NIFTY with {k}", mode="lines", line=dict(color=c, width=2),
+                        hovertemplate=f"{k}: %{{y:.2f}}<extra></extra>")
+    fig.update_layout(paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE,
+                      font=dict(family=FONT, color=plots.TEXT_2, size=13), hovermode="x unified",
+                      margin=dict(l=56, r=16, t=56, b=40),
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0),
+                      xaxis=dict(gridcolor=plots.GRID),
+                      yaxis=dict(title="correlation of weekly returns, past year",
+                                 gridcolor=plots.GRID, range=[-0.8, 1], zeroline=True,
+                                 zerolinecolor=plots.GRID))
+    return fig
+
+
 SECTIONS = [
     ("Correlation heatmap",
      "How closely each pair of today’s NIFTY 50 stocks moved, day by day. Removing the market "
@@ -56,6 +98,11 @@ SECTIONS = [
      "sector and company news. Ordered by cluster, similar stocks sit next to each other. Click "
      "a square to see that pair’s correlation through time.",
      heatmap_section),
+    ("Across assets",
+     "NIFTY’s weekly returns against the US market, gold in rupees and the dollar’s price in "
+     "rupees, each correlation over the past year. Weekly returns let each market close on its "
+     "own calendar.",
+     cross_figure),
 ]
 
 
@@ -68,7 +115,7 @@ def build_html(data: pd.DataFrame) -> str:
     for title, blurb, make in SECTIONS:
         out = make(data)
         body = out if isinstance(out, str) else out.to_html(
-            full_html=False, include_plotlyjs=False,
+            full_html=False, include_plotlyjs=False, div_id=f"fig-{_slug(title)}",
             config={"displaylogo": False, "responsive": True})
         sid = _slug(title)
         nav.append(f'<li><a href="#{sid}">{title}</a></li>')
